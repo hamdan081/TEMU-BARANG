@@ -1,43 +1,11 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
-
-export default function CategoryList() {
-  const { width } = useWindowDimensions();
-  const isSmallScreen = width <= 360;
-  const isTabletOrLandscape = width >= 768;
-  const categoryWidth = isTabletOrLandscape ? '15%' : (isSmallScreen ? '48%' : '31%');
-
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle} accessibilityRole="header">Kategori Barang</Text>
-      <View style={styles.categoryContainer}>
-        {['📱 Elektronik', '📄 Dokumen', '👕 Pakaian', '🎒 Aksesoris', '✏️ Perlengkapan', '📦 Lainnya'].map((item, index) => {
-          const cleanText = item.substring(3);
-          return (
-            <Pressable 
-              key={index} 
-              style={[styles.categoryCard, { width: categoryWidth }]}
-              accessibilityRole="button"
-              accessibilityLabel={`Kategori ${cleanText}`}
-              accessibilityHint={`Melihat daftar barang dalam kategori ${cleanText}`}
-            >
-              <Text style={styles.categoryText} importantForAccessibility="no">{item}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
-  );
+import {View,Pressable,Text,StyleSheet,useWindowDimensions} from 'react-native';
+import {categories} from '../models/Barang';
+const emoji={Elektronik:'📱',Dokumen:'📄',Pakaian:'👕',Aksesoris:'🔑',Perlengkapan:'🎒',Lainnya:'📦'};
+export default function CategoryList({onSelect}){
+ const {width}=useWindowDimensions();const cols=width<350?2:width>=768?6:3;
+ return <View style={styles.section}><Text style={styles.title} accessibilityRole="header">Kategori Barang</Text>
+ <View style={styles.grid}>{categories.map(cat=><Pressable key={cat} onPress={()=>onSelect(cat)} accessibilityRole="button" accessibilityLabel={`Kategori ${cat}`} style={[styles.category,{width:`${100/cols-2}%`}]}> 
+ <Text importantForAccessibility="no" style={styles.emoji}>{emoji[cat]}</Text><Text style={styles.label}>{cat}</Text></Pressable>)}</View></View>;
 }
-
-const styles = StyleSheet.create({
-  section: { marginBottom: 25 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 15 },
-  categoryContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  categoryCard: {
-    backgroundColor: '#FFFFFF', paddingVertical: 15, paddingHorizontal: 5,
-    borderRadius: 8, alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: '#E0E0E0',
-    minHeight: 48,
-  },
-  categoryText: { fontSize: 13, color: '#444', textAlign: 'center', marginTop: 5, fontWeight: '500' },
-});
+const styles=StyleSheet.create({section:{marginBottom:18},title:{fontSize:18,fontWeight:'800',color:'#152238',marginBottom:12},grid:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between'},category:{borderWidth:1,borderColor:'#E2E8F0',borderRadius:12,minHeight:75,backgroundColor:'#fff',marginBottom:10,alignItems:'center',justifyContent:'center',paddingHorizontal:3},emoji:{fontSize:24,marginBottom:5},label:{fontSize:11,color:'#334155',textAlign:'center',fontWeight:'600'}});

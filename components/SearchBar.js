@@ -1,30 +1,6 @@
 import React from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
-
-export default function SearchBar() {
-  return (
-    <View style={styles.searchContainer}>
-      <Text style={styles.searchIcon} importantForAccessibility="no">🔍</Text>
-      <TextInput 
-        style={styles.searchInput} 
-        placeholder="Cari barang..."
-        placeholderTextColor="#555555"
-        accessibilityLabel="Cari barang hilang atau ditemukan"
-        accessibilityHint="Masukkan nama barang yang ingin dicari, lalu tekan enter"
-        accessibilityRole="search"
-      />
-    </View>
-  );
+import {View,Text,TextInput,StyleSheet} from 'react-native';
+export default function SearchBar({value,onChangeText}){
+ return <View style={styles.root}><Text importantForAccessibility="no" style={styles.icon}>⌕</Text><TextInput style={styles.input} value={value} onChangeText={onChangeText} placeholder="Cari barang hilang atau ditemukan..." placeholderTextColor="#64748B" accessibilityLabel="Cari barang berdasarkan nama, kategori, atau lokasi" autoCorrect={false} returnKeyType="search" /></View>;
 }
-
-const styles = StyleSheet.create({
-  searchContainer: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF',
-    paddingHorizontal: 15, borderRadius: 10, marginTop: 10, marginBottom: 25,
-    height: 50, borderWidth: 1, borderColor: '#E0E0E0',
-  },
-  searchIcon: { fontSize: 18, marginRight: 10 },
-  searchInput: { flex: 1, fontSize: 16, color: '#333' },
-});
-
-// update
+const styles=StyleSheet.create({root:{borderWidth:1,borderColor:'#CBD5E1',backgroundColor:'#fff',borderRadius:12,paddingHorizontal:14,marginVertical:18,flexDirection:'row',alignItems:'center',minHeight:50},icon:{fontSize:25,color:'#64748B',paddingRight:8},input:{flex:1,color:'#152238',fontSize:15,minHeight:48}});

@@ -1,692 +1,420 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  SafeAreaView, 
-  ScrollView, 
-  StatusBar, 
-  StyleSheet, 
-  useWindowDimensions, 
-  View, 
-  Text, 
-  TextInput, 
-  Pressable,
-  Alert,
-  ActivityIndicator
+/**
+ * TemuKampus — project terpadu Mobile Programming Week 1–5.
+ * Week 1: ide, masalah pengguna, Product Canvas dan rencana aplikasi.
+ * Week 2: React Native UI, responsive layout dan accessibility.
+ * Week 3: register/login, secure storage dan security validation.
+ * Week 4: Barang DTO + REST API JSON + dynamic FlatList.
+ * Week 5: server-issued JWT + Bearer token + protected endpoint + session/logout.
+ */
+import React,{useCallback,useEffect,useMemo,useState} from 'react';
+import {
+  ActivityIndicator,Alert,FlatList,Image,KeyboardAvoidingView,Platform,
+  Pressable,SafeAreaView,ScrollView,StatusBar,StyleSheet,
+  Text,TextInput,useWindowDimensions,View
 } from 'react-native';
-
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as SecureStore from 'expo-secure-store';
-import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-
-import ActionMenu from './components/ActionMenu';
-import BottomNav from './components/BottomNav';
-import CategoryList from './components/CategoryList';
+import * as ImagePicker from 'expo-image-picker';
 import Header from './components/Header';
-import LatestItems from './components/LatestItems';
 import SearchBar from './components/SearchBar';
+import ActionMenu from './components/ActionMenu';
+import CategoryList from './components/CategoryList';
+import LatestItems from './components/LatestItems';
+import BottomNav from './components/BottomNav';
+import ItemCard from './components/ItemCard';
+import {categories} from './models/Barang';
+import {API_BASE_URL,ApiError,registerUser,loginWithAPI,getProfile,logoutAPI,fetchBarang,createBarang,verifyBarang,markReturned,uploadPhoto,resolveImageUrl} from './services/api';
+import {clearSession,getToken,saveSession,savePreference,getPreference} from './storage/session';
 
-// --- KEYS ---
-const USER_PROFILE_KEY = 'TEMU_KAMPUS_USER_PROFILE';
-const USER_CREDENTIAL_KEY = 'TEMU_KAMPUS_USER_CREDENTIAL';
-const AUTH_TOKEN_KEY = 'TEMU_KAMPUS_AUTH_TOKEN';
+const primary='#1565C0';
+const blankForm={nama:'',kategori:'Elektronik',lokasi:'',deskripsi:'',status:'Hilang',image:'',verificationSecret:''};
 
-export default function App() {
-  const { width } = useWindowDimensions();
-  const isTabletOrLandscape = width >= 768;
-  const contentMaxWidth = isTabletOrLandscape ? 800 : '100%';
-  const screenPadding = isTabletOrLandscape ? 40 : 20;
-
-  // Authentication State
-  const [currentScreen, setCurrentScreen] = useState('login');
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [loggedInUser, setLoggedInUser] = useState(null);
-
-  // Form States (Register)
-  const [regName, setRegName] = useState('');
-  const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-  const [regConfirmPassword, setRegConfirmPassword] = useState('');
-  const [showRegPassword, setShowRegPassword] = useState(false);
-  const [showRegConfirmPassword, setShowRegConfirmPassword] = useState(false);
-  const [regError, setRegError] = useState('');
-
-  // Form States (Login)
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [showLoginPassword, setShowLoginPassword] = useState(false);
-  const [loginError, setLoginError] = useState('');
-
-  // ==========================================
-  // STORAGE FUNCTIONS
-  // ==========================================
-
-  const saveNormalData = async (key, value) => {
-    try {
-      const jsonValue = JSON.stringify(value);
-      await AsyncStorage.setItem(key, jsonValue);
-    } catch (e) {
-      Alert.alert("Error", "Terjadi kesalahan. Silakan coba kembali.");
-    }
-  };
-
-  const getNormalData = async (key) => {
-    try {
-      const jsonValue = await AsyncStorage.getItem(key);
-      return jsonValue != null ? JSON.parse(jsonValue) : null;
-    } catch (e) {
-      Alert.alert("Error", "Terjadi kesalahan. Silakan coba kembali.");
-      return null;
-    }
-  };
-
-  const saveSecureData = async (key, value) => {
-    try {
-      await SecureStore.setItemAsync(key, value);
-    } catch (e) {
-      Alert.alert("Error", "Terjadi kesalahan. Silakan coba kembali.");
-    }
-  };
-
-  const getSecureData = async (key) => {
-    try {
-      return await SecureStore.getItemAsync(key);
-    } catch (e) {
-      return null;
-    }
-  };
-
-  // ==========================================
-  // AUTHENTICATION LOGIC
-  // ==========================================
-
-  const checkAuthentication = async () => {
-    try {
-      const token = await getSecureData(AUTH_TOKEN_KEY);
-      if (token) {
-        const profile = await getNormalData(USER_PROFILE_KEY);
-        if (profile) {
-          setLoggedInUser(profile);
-          setCurrentScreen('home');
-        } else {
-          setCurrentScreen('login');
-        }
-      } else {
-        setCurrentScreen('login');
-      }
-    } catch (error) {
-      setCurrentScreen('login');
-    } finally {
-      setIsCheckingAuth(false);
-    }
-  };
-
-  useEffect(() => {
-    checkAuthentication();
-  }, []);
-
-  const handleRegister = async () => {
-    setRegError('');
-    if (!regName.trim() || !regEmail.trim() || !regPassword) {
-      setRegError('Semua field wajib diisi.');
-      return;
-    }
-    if (regPassword.length < 6) {
-      setRegError('Password minimal 6 karakter.');
-      return;
-    }
-    if (regPassword !== regConfirmPassword) {
-      setRegError('Konfirmasi password tidak cocok.');
-      return;
-    }
-
-    const userProfile = { name: regName.trim(), email: regEmail.trim() };
-    await saveNormalData(USER_PROFILE_KEY, userProfile);
-    await saveSecureData(USER_CREDENTIAL_KEY, regPassword);
-
-    Alert.alert('Berhasil', 'Akun berhasil dibuat. Silakan login.');
-    
-    setRegName(''); setRegEmail(''); setRegPassword(''); setRegConfirmPassword('');
-    setCurrentScreen('login');
-  };
-
-  const login = async () => {
-    setLoginError('');
-    
-    if (!loginEmail.trim() || !loginPassword) {
-      setLoginError('Email atau username wajib diisi.');
-      return;
-    }
-
-    try {
-      const savedProfile = await getNormalData(USER_PROFILE_KEY);
-      const savedPassword = await getSecureData(USER_CREDENTIAL_KEY);
-
-      if (
-        savedProfile && 
-        savedProfile.email === loginEmail.trim() && 
-        savedPassword === loginPassword
-      ) {
-        const fakeSessionToken = `SESSION_${new Date().getTime()}`;
-        await saveSecureData(AUTH_TOKEN_KEY, fakeSessionToken);
-        setLoggedInUser(savedProfile);
-        setCurrentScreen('home');
-        
-        setLoginEmail(''); setLoginPassword('');
-      } else {
-        setLoginError('Email/username atau password salah.');
-      }
-    } catch (e) {
-      setLoginError('Terjadi kesalahan. Silakan coba kembali.');
-    }
-  };
-
-  const logout = async () => {
-    try {
-      await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
-      setLoggedInUser(null);
-      setCurrentScreen('login');
-    } catch (e) {
-      Alert.alert('Error', 'Terjadi kesalahan. Silakan coba kembali.');
-    }
-  };
-
-  const loadDemoAccount = () => {
-    setLoginEmail('budi@kampus.ac.id');
-    setLoginPassword('rahasia123');
-  };
-
-  // ==========================================
-  // RENDERING SCREENS
-  // ==========================================
-
-  if (isCheckingAuth) {
-    return (
-      <SafeAreaView style={[styles.authContainer, { justifyContent: 'center' }]}>
-        <ActivityIndicator size="large" color="#1565C0" />
-      </SafeAreaView>
-    );
-  }
-
-  // --- HALAMAN REGISTER ---
-  if (currentScreen === 'register') {
-    return (
-      <SafeAreaView style={styles.authContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FAFAFA" />
-        <ScrollView contentContainerStyle={styles.authScroll}>
-          <View style={[styles.authForm, { maxWidth: 480, padding: screenPadding }]}>
-            
-            {/* Top Right Tools Icon */}
-            <View style={styles.topRightBtnContainer}>
-              <View style={styles.topRightIconBg}>
-                <Ionicons name="settings-sharp" size={20} color="#666" />
-              </View>
-            </View>
-
-            {/* Logo & Title */}
-            <View style={styles.headerSection}>
-              <View style={styles.logoCircle}>
-                <Feather name="shield" size={32} color="#1565C0" />
-              </View>
-              <Text style={styles.appTitle}>TEMUKAMPUS</Text>
-              <Text style={styles.subtitle}>Buat Akun Baru & Amankan Data Anda</Text>
-            </View>
-
-            {/* Info Box */}
-            <View style={styles.infoBox}>
-              <Feather name="lock" size={18} color="#1565C0" style={{marginTop: 2}} />
-              <Text style={styles.infoText}>
-                Kredensial disimpan terenkripsi via Expo Secure Storage (Hardware Keystore/Keychain).
-              </Text>
-            </View>
-
-            {!!regError && <Text style={styles.errorText} accessibilityRole="alert">{regError}</Text>}
-
-            {/* Input Nama */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Nama Lengkap</Text>
-              <View style={styles.inputWrapper}>
-                <Feather name="user" size={20} color="#888" style={styles.inputIcon} />
-                <TextInput 
-                  style={styles.inputWithIcon}
-                  placeholder="Contoh: Budi Santoso"
-                  placeholderTextColor="#999"
-                  value={regName}
-                  onChangeText={setRegName}
-                />
-              </View>
-            </View>
-
-            {/* Input Email */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email atau Username</Text>
-              <View style={styles.inputWrapper}>
-                <Feather name="mail" size={20} color="#888" style={styles.inputIcon} />
-                <TextInput 
-                  style={styles.inputWithIcon}
-                  placeholder="mahasiswa@kampus.ac.id atau username"
-                  placeholderTextColor="#999"
-                  value={regEmail}
-                  onChangeText={setRegEmail}
-                  autoCapitalize="none"
-                />
-              </View>
-            </View>
-
-            {/* Input Password */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Password / PIN</Text>
-              <View style={styles.inputWrapper}>
-                <Feather name="key" size={20} color="#888" style={styles.inputIcon} />
-                <TextInput 
-                  style={styles.inputWithIcon}
-                  placeholder="Minimal 6 karakter"
-                  placeholderTextColor="#999"
-                  value={regPassword}
-                  onChangeText={setRegPassword}
-                  secureTextEntry={!showRegPassword}
-                />
-                <Pressable onPress={() => setShowRegPassword(!showRegPassword)} style={styles.eyeBtn}>
-                  <Feather name={showRegPassword ? "eye-off" : "eye"} size={20} color="#888" />
-                </Pressable>
-              </View>
-            </View>
-
-            {/* Input Confirm Password */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Konfirmasi Password</Text>
-              <View style={styles.inputWrapper}>
-                <Feather name="lock" size={20} color="#888" style={styles.inputIcon} />
-                <TextInput 
-                  style={styles.inputWithIcon}
-                  placeholder="Ulangi password"
-                  placeholderTextColor="#999"
-                  value={regConfirmPassword}
-                  onChangeText={setRegConfirmPassword}
-                  secureTextEntry={!showRegConfirmPassword}
-                />
-                <Pressable onPress={() => setShowRegConfirmPassword(!showRegConfirmPassword)} style={styles.eyeBtn}>
-                  <Feather name={showRegConfirmPassword ? "eye-off" : "eye"} size={20} color="#888" />
-                </Pressable>
-              </View>
-            </View>
-
-            {/* Button */}
-            <Pressable style={styles.primaryBtn} onPress={handleRegister}>
-              <Text style={styles.primaryBtnText}>Daftar Sekarang</Text>
-            </Pressable>
-
-            {/* Bottom Link */}
-            <View style={styles.bottomLinkContainer}>
-              <Text style={styles.bottomText}>Sudah punya akun? </Text>
-              <Pressable onPress={() => setCurrentScreen('login')}>
-                <Text style={styles.bottomLink}>Masuk</Text>
-              </Pressable>
-            </View>
-
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  // --- HALAMAN LOGIN ---
-  if (currentScreen === 'login') {
-    return (
-      <SafeAreaView style={styles.authContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FAFAFA" />
-        <ScrollView contentContainerStyle={styles.authScroll}>
-          <View style={[styles.authForm, { maxWidth: 480, padding: screenPadding }]}>
-            
-            {/* Top Right Tools Icon */}
-            <View style={styles.topRightBtnContainer}>
-              <View style={styles.topRightIconBg}>
-                <Ionicons name="settings-sharp" size={20} color="#666" />
-              </View>
-              <Text style={styles.topRightText}>Tools</Text>
-            </View>
-
-            {/* Logo & Title */}
-            <View style={styles.headerSection}>
-              <View style={styles.logoCircle}>
-                <Ionicons name="search" size={32} color="#1565C0" />
-              </View>
-              <Text style={styles.appTitle}>TEMUKAMPUS</Text>
-              <Text style={styles.subtitle}>Masuk untuk melanjutkan</Text>
-            </View>
-
-            {!!loginError && <Text style={styles.errorText} accessibilityRole="alert">{loginError}</Text>}
-
-            {/* Input Email */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email atau Username</Text>
-              <View style={styles.inputWrapper}>
-                <Feather name="mail" size={20} color="#888" style={styles.inputIcon} />
-                <TextInput 
-                  style={styles.inputWithIcon}
-                  placeholder="user@mail.com"
-                  placeholderTextColor="#999"
-                  value={loginEmail}
-                  onChangeText={setLoginEmail}
-                  autoCapitalize="none"
-                />
-              </View>
-            </View>
-
-            {/* Input Password */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Password</Text>
-              <View style={styles.inputWrapper}>
-                <Feather name="lock" size={20} color="#888" style={styles.inputIcon} />
-                <TextInput 
-                  style={styles.inputWithIcon}
-                  placeholder="••••••••"
-                  placeholderTextColor="#999"
-                  value={loginPassword}
-                  onChangeText={setLoginPassword}
-                  secureTextEntry={!showLoginPassword}
-                />
-                <Pressable onPress={() => setShowLoginPassword(!showLoginPassword)} style={styles.eyeBtn}>
-                  <Feather name={showLoginPassword ? "eye-off" : "eye"} size={20} color="#888" />
-                </Pressable>
-              </View>
-            </View>
-
-            {/* Lupa Password */}
-            <Pressable style={styles.forgotBtn} onPress={() => Alert.alert('Info', 'Fitur reset password belum tersedia.')}>
-              <Text style={styles.forgotText}>Lupa password?</Text>
-            </Pressable>
-
-            {/* Masuk Button */}
-            <Pressable style={styles.primaryBtn} onPress={login} accessibilityLabel="Masuk ke akun TemuKampus">
-              <Text style={styles.primaryBtnText}>Masuk</Text>
-            </Pressable>
-
-            {/* Divider */}
-            <View style={styles.dividerContainer}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>atau</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            {/* Biometrics Row */}
-            <View style={styles.biometricsRow}>
-              <Pressable style={styles.bioBtn} onPress={() => Alert.alert("Info", "Biometrik belum diatur.")}>
-                <Ionicons name="finger-print-outline" size={24} color="#1565C0" style={{marginBottom: 4}} />
-                <Text style={styles.bioText}>Biometrik</Text>
-              </Pressable>
-              <Pressable style={styles.bioBtn} onPress={() => Alert.alert("Info", "Face ID belum diatur.")}>
-                <MaterialCommunityIcons name="face-recognition" size={24} color="#1565C0" style={{marginBottom: 4}} />
-                <Text style={styles.bioText}>Face ID</Text>
-              </Pressable>
-            </View>
-
-            {/* Demo Button */}
-            <Pressable style={styles.demoBtn} onPress={loadDemoAccount}>
-              <Ionicons name="flash-outline" size={18} color="#555" />
-              <Text style={styles.demoText}>Gunakan Akun Demo (1-Klik)</Text>
-            </Pressable>
-
-            {/* Bottom Link */}
-            <View style={styles.bottomLinkContainer}>
-              <Text style={styles.bottomText}>Belum punya akun? </Text>
-              <Pressable onPress={() => setCurrentScreen('register')}>
-                <Text style={styles.bottomLink}>Daftar sekarang</Text>
-              </Pressable>
-            </View>
-
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  // --- HALAMAN HOME ---
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-      
-      <Header userName={loggedInUser?.name} onLogout={logout} />
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, { paddingHorizontal: screenPadding }]}>
-        <View style={{ maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' }}>
-          
-          <SearchBar />
-          <ActionMenu />
-          <CategoryList />
-          <LatestItems />
-        </View>
-      </ScrollView>
-
-      <BottomNav />
-    </SafeAreaView>
-  );
+function UIButton({title,onPress,secondary=false,disabled=false,danger=false,style}){
+ return <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={title}
+  accessibilityState={{disabled}} style={[styles.button,secondary&&styles.outline,danger&&styles.danger,disabled&&styles.disabled,style]}>
+  <Text style={[styles.buttonText,secondary&&styles.outlineText]}>{title}</Text>
+ </Pressable>;
+}
+function Field({label,value,onChangeText,placeholder,secret=false,multiline=false,autoCapitalize='sentences',keyboardType='default'}){
+ const [visible,setVisible]=useState(false);
+ return <View style={styles.field}>
+  <Text style={styles.label}>{label}</Text>
+  <View style={styles.inputRow}>
+   <TextInput accessibilityLabel={label} placeholder={placeholder||label} placeholderTextColor="#7C8798" style={[styles.input,multiline&&styles.multiline]}
+    value={value} onChangeText={onChangeText} secureTextEntry={secret&&!visible} multiline={multiline}
+    autoCapitalize={autoCapitalize} keyboardType={keyboardType} autoCorrect={!secret} />
+   {secret&&<Pressable onPress={()=>setVisible(!visible)} accessibilityRole="button" accessibilityLabel={visible?`Sembunyikan ${label}`:`Tampilkan ${label}`} style={styles.eye}><Text style={styles.eyeText}>{visible?'Sembunyikan':'Lihat'}</Text></Pressable>}
+  </View>
+ </View>;
+}
+function StatusMessage({message,error=false}){
+ if(!message)return null;
+ return <Text accessibilityLiveRegion="polite" style={[styles.message,error?styles.error:styles.success]}>{message}</Text>;
+}
+function Choice({label,selected,onPress}){
+ return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{selected}} style={[styles.choice,selected&&styles.choiceOn]}><Text style={[styles.choiceText,selected&&styles.choiceTextOn]}>{label}</Text></Pressable>;
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
-  scrollContent: { paddingBottom: 100, paddingTop: 10 },
-  
-  // -- New Auth UI Styles matching the uploaded design --
-  authContainer: {
-    flex: 1,
-    backgroundColor: '#FAFAFA',
-  },
-  authScroll: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  authForm: {
-    width: '100%',
-    backgroundColor: '#FAFAFA',
-  },
-  
-  // Top right icon
-  topRightBtnContainer: {
-    alignItems: 'flex-end',
-    marginBottom: 10,
-  },
-  topRightIconBg: {
-    backgroundColor: '#E2E8F0',
-    borderRadius: 30,
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  topRightText: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
-    marginRight: 6
-  },
+export default function App(){
+ const {width}=useWindowDimensions();
+ const wide=width>=760;
+ const [screen,setScreen]=useState('login');
+ const [authUser,setAuthUser]=useState(null);
+ const [booting,setBooting]=useState(true);
+ const [busy,setBusy]=useState(false);
+ const [message,setMessage]=useState('');
+ const [error,setError]=useState('');
+ const [items,setItems]=useState([]);
+ const [loadingItems,setLoadingItems]=useState(false);
+ const [itemsError,setItemsError]=useState('');
+ const [search,setSearch]=useState('');
+ const [category,setCategory]=useState('Semua');
+ const [statusFilter,setStatusFilter]=useState('Semua');
+ const [selected,setSelected]=useState(null);
+ const [form,setForm]=useState(blankForm);
+ const [selectedImage,setSelectedImage]=useState(null);
+ const [selectedImageBase64,setSelectedImageBase64]=useState(null);
+ const [claimAnswer,setClaimAnswer]=useState('');
+ const [authForm,setAuthForm]=useState({name:'',email:'',password:'',confirm:''});
+ const [compactMode,setCompactMode]=useState(false);
 
-  // Header section
-  headerSection: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  logoCircle: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: '#E0E7FF', // Light blue background
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  appTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#0F172A', // Dark slate
-    letterSpacing: 1,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#64748B',
-    marginTop: 4,
-  },
+ const pickFromGallery=async()=>{
+  try{
+   const perm=await ImagePicker.requestMediaLibraryPermissionsAsync();
+   if(!perm.granted){
+    Alert.alert('Izin Galeri Ditolak','Aplikasi memerlukan izin galeri untuk memilih foto barang.');
+    return;
+   }
+   const result=await ImagePicker.launchImageLibraryAsync({
+    mediaTypes:['images'],
+    allowsEditing:true,
+    aspect:[4,3],
+    quality:0.6,
+    base64:true,
+   });
+   if(!result.canceled&&result.assets&&result.assets.length>0){
+    setSelectedImage(result.assets[0].uri);
+    setSelectedImageBase64(result.assets[0].base64||null);
+    setError('');
+   }
+  }catch(e){
+   setError('Gagal membuka galeri: '+(e.message||'Kesalahan sistem'));
+  }
+ };
 
-  // Info Box for Register
-  infoBox: {
-    flexDirection: 'row',
-    backgroundColor: '#EFF6FF', // Light blue background
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    marginBottom: 24,
-  },
-  infoText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#1E3A8A',
-    marginLeft: 8,
-    lineHeight: 18,
-  },
+ const takePhoto=async()=>{
+  try{
+   const perm=await ImagePicker.requestCameraPermissionsAsync();
+   if(!perm.granted){
+    Alert.alert('Izin Kamera Ditolak','Aplikasi memerlukan izin kamera untuk mengambil foto barang.');
+    return;
+   }
+   const result=await ImagePicker.launchCameraAsync({
+    mediaTypes:['images'],
+    allowsEditing:true,
+    aspect:[4,3],
+    quality:0.6,
+    base64:true,
+   });
+   if(!result.canceled&&result.assets&&result.assets.length>0){
+    setSelectedImage(result.assets[0].uri);
+    setSelectedImageBase64(result.assets[0].base64||null);
+    setError('');
+   }
+  }catch(e){
+   setError('Gagal membuka kamera: '+(e.message||'Kesalahan sistem'));
+  }
+ };
 
-  // Inputs
-  inputGroup: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#1E293B',
-    marginBottom: 6,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    height: 50,
-  },
-  inputIcon: {
-    paddingHorizontal: 12,
-  },
-  inputWithIcon: {
-    flex: 1,
-    height: '100%',
-    fontSize: 14,
-    color: '#333',
-  },
-  eyeBtn: {
-    paddingHorizontal: 16,
-    height: '100%',
-    justifyContent: 'center',
-  },
+ const changePhotoChoice=()=>{
+  Alert.alert(
+   'Ganti Foto Barang',
+   'Pilih sumber foto baru:',
+   [
+    {text:'Pilih dari Galeri',onPress:pickFromGallery},
+    {text:'Ambil Foto (Kamera)',onPress:takePhoto},
+    {text:'Batal',style:'cancel'}
+   ]
+  );
+ };
 
-  // Forgot password
-  forgotBtn: {
-    alignSelf: 'flex-end',
-    marginBottom: 20,
-  },
-  forgotText: {
-    fontSize: 13,
-    color: '#64748B',
-  },
+ const authenticated=Boolean(authUser);
+ const handleUnauthorized=useCallback(async()=>{
+  await clearSession().catch(()=>{});
+  setAuthUser(null);setItems([]);setSelected(null);setScreen('login');
+  setError('Sesi tidak valid atau sudah berakhir. Silakan login kembali.');
+ },[]);
+ const guarded=useCallback(async(promise)=>{
+  try{return await promise();}
+  catch(e){if(e.status===401)await handleUnauthorized();throw e;}
+ },[handleUnauthorized]);
 
-  // Buttons
-  primaryBtn: {
-    backgroundColor: '#1565C0', // Tema TemuKampus
-    height: 50,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  primaryBtnText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
+ const refreshItems=useCallback(async()=>{
+  setLoadingItems(true);setItemsError('');
+  try {const list=await guarded(fetchBarang);setItems(list);return list;}
+  catch(e){if(e.status!==401)setItemsError(e.message||'Data barang tidak dapat dimuat.');return [];
+  }finally{setLoadingItems(false);}
+ },[guarded]);
 
-  // Divider
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#E2E8F0',
-  },
-  dividerText: {
-    marginHorizontal: 12,
-    color: '#94A3B8',
-    fontSize: 13,
-  },
+ // Week 3+5: restore session by validating stored token with server /me.
+ useEffect(()=>{
+  let active=true;
+  (async()=>{
+   try{
+    const preferences=await getPreference();
+    if(active)setCompactMode(Boolean(preferences.compactMode));
+    const token=await getToken();
+    if(token){
+      const profile=await getProfile();
+      if(active){setAuthUser(profile.user);setScreen('home');}
+    }
+   }catch(e){
+    if(e.status===401)await clearSession().catch(()=>{});
+    else if(active)setError('Tidak dapat memeriksa sesi. Hubungkan kembali ke API dan login.');
+   }
+   finally{if(active)setBooting(false);}
+  })();
+  return()=>{active=false;};
+ },[]);
+ useEffect(()=>{if(authenticated)refreshItems();},[authenticated,refreshItems]);
 
-  // Biometrics
-  biometricsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  bioBtn: {
-    flex: 1,
-    height: 60,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginHorizontal: 4,
-  },
-  bioText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#1E293B',
-  },
+ const changeAuth=(key,value)=>{setAuthForm(current=>({...current,[key]:value}));setError('');};
+ const doRegister=async()=>{
+  const {name,email,password,confirm}=authForm;
+  if(!name.trim()||!email.trim()||!password){setError('Nama, email, dan password wajib diisi.');return;}
+  if(!/^\S+@\S+\.\S+$/.test(email.trim())){setError('Format email tidak valid.');return;}
+  if(password.length<8){setError('Password minimal 8 karakter.');return;}
+  if(password!==confirm){setError('Konfirmasi password tidak cocok.');return;}
+  setBusy(true);setError('');
+  try{
+   await registerUser(name.trim(),email.trim().toLowerCase(),password);
+   setAuthForm({name:'',email:email.trim().toLowerCase(),password:'',confirm:''});
+   setScreen('login');setMessage('Akun berhasil dibuat. Silakan masuk.');
+  }catch(e){setError(e.message);}finally{setBusy(false);}
+ };
+ const doLogin=async()=>{
+  if(!authForm.email.trim()||!authForm.password){setError('Email dan password wajib diisi.');return;}
+  setBusy(true);setError('');setMessage('');
+  try{
+   const result=await loginWithAPI(authForm.email.trim().toLowerCase(),authForm.password);
+   if(!result.access_token||!result.user)throw new Error('Server tidak memberikan token dan profil yang valid.');
+   await saveSession(result.access_token,result.user);
+   setAuthForm({name:'',email:'',password:'',confirm:''});
+   setAuthUser(result.user);setScreen('home');
+  }catch(e){setError(e.message||'Login gagal.');}finally{setBusy(false);}
+ };
+ const doLogout=async()=>{
+  setBusy(true);setError('');let remoteFailed=false;
+  try{await logoutAPI();}catch(e){remoteFailed=true;}
+  try{await clearSession();}catch(e){setError('Gagal menghapus sesi lokal. Coba kembali.');setBusy(false);return;}
+  setAuthUser(null);setItems([]);setSelected(null);setScreen('login');
+  setAuthForm({name:'',email:'',password:'',confirm:''});setMessage(remoteFailed?'Keluar dari perangkat ini; server tidak terjangkau, token lama akan kedaluwarsa.':'Kamu berhasil keluar dari akun.');
+  setBusy(false);
+ };
+ const navigate=target=>{setScreen(target);setError('');setMessage('');};
+ const selectItem=item=>{setSelected(item);navigate('detail');};
+ const startReport=status=>{setForm({...blankForm,status});setSelectedImage(null);setSelectedImageBase64(null);navigate('report');};
+ const changeReport=(key,value)=>setForm(previous=>({...previous,[key]:value}));
+ const submitReport=async()=>{
+  if(!form.nama.trim()||!form.lokasi.trim()||!form.deskripsi.trim()||form.verificationSecret.trim().length<4){setError('Isi nama, lokasi, ciri-ciri, dan ciri rahasia minimal 4 karakter.');return;}
+  setBusy(true);setError('');setMessage(selectedImage||selectedImageBase64?'Mengunggah foto barang...':'Menyimpan laporan...');
+  try{
+   let uploadedUrl='';
+   if(selectedImage||selectedImageBase64){
+    uploadedUrl=await guarded(()=>uploadPhoto(selectedImage,selectedImageBase64));
+   }
+   setMessage('Menyimpan laporan...');
+   const payload={...form,image:uploadedUrl};
+   const created=await guarded(()=>createBarang(payload));
+   await refreshItems();setForm(blankForm);setSelectedImage(null);setSelectedImageBase64(null);setSelected(created);setScreen('detail');
+   setMessage(uploadedUrl?'Laporan dan foto berhasil tersimpan pada server.':'Laporan tersimpan pada server.');
+  }catch(e){if(e.status!==401)setError(e.message||'Gagal mengirim laporan.');}finally{setBusy(false);}
+ };
+ const submitClaim=async()=>{
+  if(!claimAnswer.trim()){setError('Isi ciri khusus barang untuk verifikasi.');return;}
+  setBusy(true);setError('');setMessage('');
+  try{
+   const result=await guarded(()=>verifyBarang(selected.id,claimAnswer));
+   setSelected(result.item);setClaimAnswer('');setMessage(result.message);await refreshItems();setScreen('detail');
+  }catch(e){if(e.status!==401)setError(e.message);}finally{setBusy(false);}
+ };
+ const completeReturn=async()=>{
+  setBusy(true);setError('');
+  try{
+   const item=await guarded(()=>markReturned(selected.id));
+   setSelected(item);setMessage('Status diubah menjadi Dikembalikan.');await refreshItems();
+  }catch(e){if(e.status!==401)setError(e.message);}finally{setBusy(false);}
+ };
+ const filtered=useMemo(()=>items.filter(item=>{
+  const text=search.trim().toLocaleLowerCase('id');
+  const match=!text||[item.nama,item.kategori,item.lokasi,item.deskripsi].some(v=>v.toLocaleLowerCase('id').includes(text));
+  return match&&(category==='Semua'||item.kategori===category)&&(statusFilter==='Semua'||item.status===statusFilter);
+ }),[items,search,category,statusFilter]);
+ const chooseCategory=cat=>{setCategory(cat);setStatusFilter('Semua');navigate('list');};
+ const cover=(child)=> <View style={[styles.pageContent,{maxWidth:wide?860:600,paddingHorizontal:wide?30:18}]}>{child}</View>;
 
-  // Demo Button
-  demoBtn: {
-    flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    height: 50,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  demoText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#475569',
-    marginLeft: 8,
-  },
+ if(booting)return <SafeAreaView style={styles.center}><ActivityIndicator size="large" color={primary}/><Text style={styles.muted}>Memeriksa sesi login...</Text></SafeAreaView>;
+ if(!authenticated){
+  const registering=screen==='register';
+  return <SafeAreaView style={styles.page}><StatusBar barStyle="dark-content"/>
+   <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':undefined}>
+    <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled">
+     <View style={[styles.authBox,{maxWidth:wide?520:460}]}>
+      <View style={styles.logo}><Text style={styles.logoIcon}>⌕</Text></View>
+      <Text style={styles.appTitle}>TEMUKAMPUS</Text>
+      <Text style={styles.authSubtitle}>{registering?'Buat akun baru':'Masuk untuk mencari dan melaporkan barang di kampus'}</Text>
+      {!API_BASE_URL&&<StatusMessage error message="API belum dikonfigurasi. Ikuti README untuk mengisi .env dan menjalankan server."/>}
+      <StatusMessage message={error} error/><StatusMessage message={message}/>
+      {registering&&<Field label="Nama Lengkap" value={authForm.name} onChangeText={v=>changeAuth('name',v)} placeholder="Nama mahasiswa"/>}
+      <Field label="Email" value={authForm.email} onChangeText={v=>changeAuth('email',v)} placeholder="nama@kampus.ac.id" keyboardType="email-address" autoCapitalize="none"/>
+      <Field label="Password" value={authForm.password} onChangeText={v=>changeAuth('password',v)} placeholder="Minimal 8 karakter" secret autoCapitalize="none"/>
+      {registering&&<Field label="Konfirmasi Password" value={authForm.confirm} onChangeText={v=>changeAuth('confirm',v)} placeholder="Ulangi password" secret autoCapitalize="none"/>}
+      <UIButton title={busy?'Tunggu...':registering?'Daftar':'Masuk'} disabled={busy||!API_BASE_URL} onPress={registering?doRegister:doLogin}/>
+      <Pressable accessibilityRole="button" onPress={()=>{setError('');setMessage('');setScreen(registering?'login':'register');}} style={styles.switch}>
+       <Text style={styles.link}>{registering?'Sudah punya akun? Masuk':'Belum punya akun? Daftar sekarang'}</Text>
+      </Pressable>
+      <Text style={styles.authNote}>Akun demo praktikum tersedia pada README. Jangan gunakan password akun pribadi untuk pengujian.</Text>
+     </View>
+    </ScrollView>
+   </KeyboardAvoidingView>
+  </SafeAreaView>;
+ }
+ const activeTab=['home','list','report','profile'].includes(screen)?screen:screen==='detail'||screen==='verify'?'list':'home';
+ return <SafeAreaView style={styles.page}><StatusBar barStyle="dark-content"/>
+  <Header userName={authUser?.name}/>
+  {screen==='list' ? <View style={styles.flex}>
+    {cover(<>
+     <Text style={styles.heading} accessibilityRole="header">Daftar Barang</Text>
+     <SearchBar value={search} onChangeText={setSearch}/>
+     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.choiceRow}>
+      {['Semua','Hilang','Ditemukan','Dikembalikan'].map(s=><Choice key={s} label={s} selected={statusFilter===s} onPress={()=>setStatusFilter(s)}/>)}
+     </ScrollView>
+     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.choiceRow}>
+      {['Semua',...categories].map(cat=><Choice key={cat} label={cat} selected={category===cat} onPress={()=>setCategory(cat)}/>)}
+     </ScrollView>
+     <StatusMessage message={itemsError} error/>
+    </>)}
+    <FlatList data={filtered} keyExtractor={item=>String(item.id)} renderItem={({item})=><ItemCard item={item} compact={compactMode} onPress={()=>selectItem(item)}/>}
+     contentContainerStyle={[styles.listContent,{maxWidth:wide?860:600,paddingHorizontal:wide?30:18}]}
+     ListEmptyComponent={<Text style={styles.muted}>{loadingItems?'Memuat data...':'Tidak ada barang yang sesuai.'}</Text>}
+     refreshing={loadingItems} onRefresh={refreshItems} />
+   </View> :
+   <ScrollView style={styles.flex} keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom:30}}>
+    {cover(<>
+     {screen==='home'&&<>
+      <SearchBar value={search} onChangeText={setSearch}/>
+      <ActionMenu onLost={()=>startReport('Hilang')} onFound={()=>startReport('Ditemukan')}/>
+      <CategoryList onSelect={chooseCategory}/>
+      {loadingItems&&<ActivityIndicator color={primary}/>}
+      <StatusMessage message={itemsError} error/>
+      <LatestItems items={filtered} onOpen={selectItem} onViewAll={()=>navigate('list')}/>
+      <UIButton title="Muat ulang data barang" onPress={refreshItems} secondary disabled={loadingItems}/>
+     </>}
+     {screen==='report'&&<>
+      <Text style={styles.heading} accessibilityRole="header">Lapor Barang</Text><Text style={styles.muted}>Isi informasi dengan jelas untuk membantu proses pencarian.</Text>
+      <View style={styles.choiceRow}>{['Hilang','Ditemukan'].map(s=><Choice key={s} label={s} selected={form.status===s} onPress={()=>changeReport('status',s)}/>)}</View>
+      <StatusMessage message={error} error/>
+      <Field label="Nama Barang" value={form.nama} onChangeText={v=>changeReport('nama',v)}/>
+      <Text style={styles.label}>Kategori</Text><View style={styles.wrap}>{categories.map(cat=><Choice key={cat} label={cat} selected={form.kategori===cat} onPress={()=>changeReport('kategori',cat)}/>)}</View>
+      <Field label="Lokasi terakhir / ditemukan" value={form.lokasi} onChangeText={v=>changeReport('lokasi',v)}/>
+      <Field label="Ciri-ciri Barang" value={form.deskripsi} onChangeText={v=>changeReport('deskripsi',v)} multiline placeholder="Warna, ukuran, ciri khusus..."/>
+      <View style={styles.field}>
+       <Text style={styles.label}>Foto Barang (opsional)</Text>
+       {!selectedImage ? (
+        <View style={styles.photoPickerRow}>
+         <Pressable onPress={pickFromGallery} accessibilityRole="button" accessibilityLabel="Pilih foto barang dari galeri" style={styles.pickerBtn}>
+          <Text style={styles.pickerBtnIcon}>🖼️</Text>
+          <Text style={styles.pickerBtnText}>Pilih dari Galeri</Text>
+         </Pressable>
+         <Pressable onPress={takePhoto} accessibilityRole="button" accessibilityLabel="Ambil foto barang dengan kamera" style={styles.pickerBtn}>
+          <Text style={styles.pickerBtnIcon}>📸</Text>
+          <Text style={styles.pickerBtnText}>Ambil Foto</Text>
+         </Pressable>
+        </View>
+       ) : (
+        <View style={styles.previewContainer}>
+         <Image source={{uri:selectedImage}} style={styles.previewImage} accessibilityLabel="Preview foto barang yang dipilih" resizeMode="cover"/>
+         <View style={styles.previewActions}>
+          <Pressable onPress={changePhotoChoice} accessibilityRole="button" accessibilityLabel="Ganti foto barang" style={[styles.previewBtn,styles.previewBtnChange]}>
+           <Text style={styles.previewBtnChangeText}>🔄 Ganti Foto</Text>
+          </Pressable>
+          <Pressable onPress={()=>{setSelectedImage(null);setSelectedImageBase64(null);}} accessibilityRole="button" accessibilityLabel="Hapus foto barang" style={[styles.previewBtn,styles.previewBtnDelete]}>
+           <Text style={styles.previewBtnDeleteText}>🗑️ Hapus Foto</Text>
+          </Pressable>
+         </View>
+        </View>
+       )}
+      </View>
+      <Field label="Ciri rahasia untuk verifikasi" value={form.verificationSecret} onChangeText={v=>changeReport('verificationSecret',v)} placeholder="Jawaban yang diketahui pemilik barang"/>
+      <Text style={styles.hint}>Ciri rahasia tidak akan ditampilkan pada daftar barang. Ini adalah simulasi verifikasi untuk praktikum, bukan pemeriksaan identitas resmi.</Text>
+      <UIButton title={busy?'Mengirim...':'Kirim Laporan'} onPress={submitReport} disabled={busy}/>
+     </>}
+     {screen==='detail'&&selected&&<>
+      <UIButton title="‹ Kembali ke Daftar" secondary onPress={()=>navigate('list')}/>
+      <Text style={styles.heading} accessibilityRole="header">Detail Barang</Text>
+      {Boolean(selected.image) && (
+       <View style={styles.detailImageContainer}>
+        <Image source={{uri:resolveImageUrl(selected.image)}} style={styles.detailImage} accessibilityLabel={`Foto ${selected.nama}`} resizeMode="cover"/>
+       </View>
+      )}
+      <Text style={styles.detailName}>{selected.nama}</Text>
+      {[['Status',selected.status],['Kategori',selected.kategori],['Lokasi',selected.lokasi],['Tanggal',selected.tanggal],['Pelapor',selected.pelapor],['Ciri-ciri',selected.deskripsi],['Verifikasi',selected.verificationStatus]].map(([key,value])=><View key={key} style={styles.detailRow}><Text style={styles.detailLabel}>{key}</Text><Text style={styles.detailValue}>{value}</Text></View>)}
+      <StatusMessage message={error} error/><StatusMessage message={message}/>
+      <UIButton title="Lihat Status Barang" secondary onPress={()=>navigate('status')}/>
+      {selected.status!=='Dikembalikan'&&<UIButton title="Verifikasi Pengambilan" onPress={()=>{setClaimAnswer('');navigate('verify');}}/>}
+      {selected.ownerId===authUser.id&&selected.verificationStatus==='Terverifikasi'&&selected.status!=='Dikembalikan'&&<UIButton title="Tandai Sudah Dikembalikan" onPress={completeReturn} disabled={busy}/>}
+     </>}
+     {screen==='status'&&selected&&<>
+      <UIButton title="‹ Kembali ke Detail" secondary onPress={()=>navigate('detail')}/>
+      <Text style={styles.heading} accessibilityRole="header">Status Barang</Text><Text style={styles.detailName}>{selected.nama}</Text>
+      <View style={styles.statusBox}><Text style={styles.statusBoxTitle}>Status laporan: {selected.status}</Text><Text style={styles.muted}>Status verifikasi: {selected.verificationStatus}</Text>
+      <Text style={styles.hint}>Alur: Laporan dibuat → Barang dicari/ditemukan → Verifikasi → Dikembalikan.</Text></View>
+     </>}
+     {screen==='verify'&&selected&&<>
+      <UIButton title="‹ Kembali ke Detail" secondary onPress={()=>navigate('detail')}/>
+      <Text style={styles.heading} accessibilityRole="header">Verifikasi Pengambilan</Text>
+      <Text style={styles.muted}>Masukkan ciri khusus yang diketahui pemilik. Server yang memeriksa jawabannya.</Text>
+      <StatusMessage message={error} error/>
+      <Field label="Ciri khusus barang" value={claimAnswer} onChangeText={setClaimAnswer} multiline placeholder="Contoh: logo kecil di pojok"/>
+      <UIButton title={busy?'Memverifikasi...':'Kirim Verifikasi'} disabled={busy} onPress={submitClaim}/>
+      <Text style={styles.hint}>Untuk penggunaan nyata diperlukan pemeriksaan oleh petugas kampus sebelum penyerahan barang.</Text>
+     </>}
+     {screen==='profile'&&<>
+      <Text style={styles.heading} accessibilityRole="header">Profil</Text>
+      <View style={styles.profile}><Text style={styles.detailName}>{authUser.name}</Text><Text style={styles.muted}>{authUser.email}</Text></View>
+      <Text style={styles.label}>Preferensi tersimpan (AsyncStorage)</Text>
+      <Choice label={compactMode?'Mode ringkas: aktif':'Mode ringkas: nonaktif'} selected={compactMode} onPress={async()=>{
+       const next=!compactMode;try{await savePreference({compactMode:next});setCompactMode(next);}catch{setError('Gagal menyimpan preferensi.');}
+      }}/>
+      <Text style={styles.hint}>Mode ringkas menyimpan preferensi tampilan. Login menggunakan token server yang disimpan di SecureStore.</Text>
+      <StatusMessage message={error} error/>
+      <UIButton title={busy?'Memproses...':'Keluar (Logout)'} danger disabled={busy} onPress={()=>Alert.alert('Konfirmasi Logout','Keluar dari akun TemuKampus?', [{text:'Batal',style:'cancel'},{text:'Keluar',style:'destructive',onPress:doLogout}])}/>
+     </>}
+    </>)}
+   </ScrollView>}
+  <BottomNav active={activeTab} onSelect={target=>{if(target==='report')startReport('Hilang');else navigate(target);}}/>
+ </SafeAreaView>;
+}
 
-  // Bottom Links
-  bottomLinkContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  bottomText: {
-    fontSize: 14,
-    color: '#64748B',
-  },
-  bottomLink: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#1565C0',
-  },
-
-  errorText: {
-    color: '#EF4444',
-    marginBottom: 16,
-    textAlign: 'center',
-    backgroundColor: '#FEF2F2',
-    padding: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FECACA'
-  },
+const styles=StyleSheet.create({
+ flex:{flex:1},page:{flex:1,backgroundColor:'#F8FAFC'},pageContent:{alignSelf:'center',width:'100%',paddingTop:18},center:{flex:1,alignItems:'center',justifyContent:'center',gap:16},muted:{fontSize:14,lineHeight:21,color:'#526580',marginVertical:8},hint:{fontSize:12,lineHeight:19,color:'#64748B',marginBottom:16},
+ heading:{fontWeight:'800',fontSize:22,color:'#14213A',marginBottom:14},detailName:{fontWeight:'800',fontSize:19,color:'#15335A',marginVertical:10},
+ button:{backgroundColor:primary,borderRadius:12,minHeight:48,alignItems:'center',justifyContent:'center',paddingHorizontal:15,paddingVertical:10,marginVertical:8},buttonText:{color:'#fff',fontSize:15,fontWeight:'800',textAlign:'center'},outline:{backgroundColor:'#fff',borderWidth:1,borderColor:primary},outlineText:{color:primary},danger:{backgroundColor:'#B91C1C'},disabled:{opacity:.55},
+ label:{fontSize:14,color:'#213047',fontWeight:'700',marginBottom:7},field:{marginBottom:15},inputRow:{minHeight:52,borderWidth:1,borderColor:'#CBD5E1',backgroundColor:'#fff',borderRadius:12,flexDirection:'row',alignItems:'center'},input:{flex:1,color:'#0F172A',fontSize:15,paddingHorizontal:13,paddingVertical:10,minHeight:48},multiline:{minHeight:95,textAlignVertical:'top'},eye:{minWidth:66,minHeight:48,alignItems:'center',justifyContent:'center',paddingHorizontal:8},eyeText:{fontWeight:'700',color:primary,fontSize:12},
+ authScroll:{flexGrow:1,alignItems:'center',justifyContent:'center',padding:18},authBox:{width:'100%',padding:20,borderRadius:16,backgroundColor:'#fff',borderWidth:1,borderColor:'#E2E8F0'},logo:{backgroundColor:'#DFEAFE',borderRadius:50,width:76,height:76,alignItems:'center',justifyContent:'center',alignSelf:'center',marginBottom:14},logoIcon:{fontSize:43,fontWeight:'bold',color:primary},appTitle:{fontSize:25,fontWeight:'900',color:'#14213A',textAlign:'center'},authSubtitle:{fontSize:14,color:'#64748B',textAlign:'center',marginBottom:22,marginTop:8,lineHeight:20},switch:{padding:13,minHeight:44,alignItems:'center'},link:{color:primary,fontWeight:'700'},authNote:{marginTop:16,fontSize:11,textAlign:'center',color:'#64748B',lineHeight:17},
+ message:{padding:12,borderRadius:10,marginVertical:9,fontSize:13,lineHeight:20},error:{color:'#9F1239',backgroundColor:'#FFF1F2',borderWidth:1,borderColor:'#FECDD3'},success:{color:'#166534',backgroundColor:'#DCFCE7'},
+ choiceRow:{flexDirection:'row',gap:8,marginBottom:10,alignItems:'center'},choice:{paddingHorizontal:14,paddingVertical:10,minHeight:44,minWidth:55,alignItems:'center',justifyContent:'center',borderRadius:25,borderWidth:1,borderColor:'#CBD5E1',backgroundColor:'#fff',marginRight:5,marginBottom:5},choiceOn:{backgroundColor:primary,borderColor:primary},choiceText:{color:'#334155',fontSize:13,fontWeight:'600'},choiceTextOn:{color:'#fff'},wrap:{flexDirection:'row',flexWrap:'wrap',gap:3,marginBottom:15},
+ listContent:{width:'100%',alignSelf:'center',paddingBottom:20,flexGrow:1},detailRow:{borderBottomWidth:1,borderColor:'#E2E8F0',paddingVertical:13,flexDirection:'row'},detailLabel:{width:'33%',fontSize:13,color:'#64748B',fontWeight:'700'},detailValue:{flex:1,fontSize:14,color:'#17283C',lineHeight:21},statusBox:{backgroundColor:'#fff',padding:20,borderRadius:14,borderWidth:1,borderColor:'#CBD5E1',marginBottom:20},statusBoxTitle:{fontSize:16,fontWeight:'800',color:primary},profile:{backgroundColor:'#fff',padding:20,borderRadius:14,borderWidth:1,borderColor:'#E2E8F0',marginBottom:24},
+ photoPickerRow:{flexDirection:'row',gap:10,marginVertical:4},
+ pickerBtn:{flex:1,minHeight:48,backgroundColor:'#fff',borderWidth:1,borderColor:'#CBD5E1',borderRadius:12,flexDirection:'row',alignItems:'center',justifyContent:'center',paddingHorizontal:10,paddingVertical:10,gap:8},
+ pickerBtnIcon:{fontSize:18},
+ pickerBtnText:{fontSize:13,fontWeight:'700',color:primary},
+ previewContainer:{borderWidth:1,borderColor:'#CBD5E1',borderRadius:12,overflow:'hidden',backgroundColor:'#fff',padding:10,marginVertical:4},
+ previewImage:{width:'100%',height:200,borderRadius:10,backgroundColor:'#F1F5F9'},
+ previewActions:{flexDirection:'row',gap:10,marginTop:10},
+ previewBtn:{flex:1,minHeight:44,borderRadius:10,alignItems:'center',justifyContent:'center',paddingVertical:8,paddingHorizontal:10},
+ previewBtnChange:{backgroundColor:'#EFF6FF',borderWidth:1,borderColor:'#BFDBFE'},
+ previewBtnChangeText:{color:'#1D4ED8',fontWeight:'700',fontSize:13},
+ previewBtnDelete:{backgroundColor:'#FEF2F2',borderWidth:1,borderColor:'#FECACA'},
+ previewBtnDeleteText:{color:'#DC2626',fontWeight:'700',fontSize:13},
+ detailImageContainer:{width:'100%',borderRadius:14,overflow:'hidden',marginBottom:14,borderWidth:1,borderColor:'#CBD5E1',backgroundColor:'#F1F5F9'},
+ detailImage:{width:'100%',height:220,backgroundColor:'#F1F5F9'}
 });

@@ -1,51 +1,11 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
-
-export default function ActionMenu() {
-  const { width } = useWindowDimensions();
-  const isSmallScreen = width <= 360;
-
-  return (
-    <View style={[styles.actionContainer, { flexDirection: isSmallScreen ? 'column' : 'row' }]}>
-      <Pressable 
-        style={[styles.actionCard, styles.cardLost, isSmallScreen ? { marginRight: 0, marginBottom: 15 } : { marginRight: 10 }]}
-        accessibilityRole="button"
-        accessibilityLabel="Lapor kehilangan barang"
-        accessibilityHint="Membuka halaman untuk membuat laporan barang yang hilang"
-      >
-        <View style={styles.actionIconContainer}>
-          <Text style={styles.actionIcon} importantForAccessibility="no">📢</Text>
-        </View>
-        <Text style={styles.actionTitle}>Lapor Kehilangan</Text>
-        <Text style={styles.actionDesc}>Laporkan barang yang hilang</Text>
-      </Pressable>
-
-      <Pressable 
-        style={[styles.actionCard, styles.cardFound, isSmallScreen ? { marginLeft: 0 } : { marginLeft: 10 }]}
-        accessibilityRole="button"
-        accessibilityLabel="Lapor barang ditemukan"
-        accessibilityHint="Membuka halaman untuk membuat laporan barang yang ditemukan"
-      >
-        <View style={styles.actionIconContainer}>
-          <Text style={styles.actionIcon} importantForAccessibility="no">💡</Text>
-        </View>
-        <Text style={styles.actionTitle}>Lapor Temuan</Text>
-        <Text style={styles.actionDesc}>Laporkan barang yang ditemukan</Text>
-      </Pressable>
-    </View>
-  );
+import {View,Text,Pressable,StyleSheet,useWindowDimensions} from 'react-native';
+export default function ActionMenu({onLost,onFound}){
+ const {width}=useWindowDimensions();const narrow=width<390;
+ return <View style={[styles.row,{flexDirection:narrow?'column':'row'}]}>
+ {[['📢','Lapor Kehilangan','Laporkan barang yang hilang','#A61B35','#FFF1F2',onLost],['📦','Lapor Temuan','Laporkan barang ditemukan','#137D5D','#E5FAF2',onFound]].map(([icon,title,desc,fg,bg,onPress])=>
+ <Pressable key={title} onPress={onPress} accessibilityRole="button" accessibilityLabel={title} accessibilityHint={desc} style={[styles.card,{backgroundColor:bg,marginBottom:narrow?10:0,marginRight:!narrow&&title==='Lapor Kehilangan'?10:0}]}>
+ <Text style={styles.icon}>{icon}</Text><Text style={[styles.title,{color:fg}]}>{title}</Text><Text style={styles.desc}>{desc}</Text>
+ </Pressable>)}</View>;
 }
-
-const styles = StyleSheet.create({
-  actionContainer: { justifyContent: 'space-between', marginBottom: 25 },
-  actionCard: {
-    flex: 1, padding: 15, borderRadius: 12, borderTopWidth: 4, backgroundColor: '#FFFFFF',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
-  },
-  cardLost: { borderColor: '#D32F2F' },
-  cardFound: { borderColor: '#2E7D32' },
-  actionIconContainer: { marginBottom: 10 },
-  actionIcon: { fontSize: 24 },
-  actionTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 5, color: '#333' },
-  actionDesc: { fontSize: 13, color: '#555', lineHeight: 18 },
-});
+const styles=StyleSheet.create({row:{marginBottom:24},card:{flex:1,borderRadius:15,padding:16,minHeight:122,justifyContent:'center'},icon:{fontSize:27,marginBottom:7},title:{fontSize:15,fontWeight:'800'},desc:{fontSize:12,color:'#475569',marginTop:4}});
