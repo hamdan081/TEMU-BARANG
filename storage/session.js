@@ -5,7 +5,7 @@ const TOKEN_KEY='access_token';
 const PROFILE_KEY='temukampus_profile';
 const PREF_KEY='temukampus_preferences';
 
-// Week 3 & 5: token sensitif hanya disimpan melalui SecureStore.
+// Week 5 Task 01: Token JWT sensitif dari server hanya disimpan melalui Expo SecureStore (bukan AsyncStorage).
 export async function saveSession(token,user) {
   if (!token || !user) throw new Error('Token atau pengguna tidak valid.');
   await SecureStore.setItemAsync(TOKEN_KEY,token);

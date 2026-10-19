@@ -74,3 +74,62 @@ test('Week 4 REST API + Week 5 token authentication, protected route, logout',as
   assert.equal(itemWithPhoto.body.data.image, upResult.url);
  }finally{server.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+test('Week 5 Task 01 - Token Authentication (Login API, Credential Validation, and Real JWT Access Token)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'temukampus-w5t1-'));
+  const server = createApp({ dataDir: dir, secret: 'w5t1-secret-key-for-test-only' });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+
+  const postLogin = async (body) => {
+    const res = await fetch(`${url}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json() };
+  };
+
+  try {
+    // 1. Validasi input kosong (HTTP 400)
+    const emptyRes = await postLogin({ email: '', password: '' });
+    assert.equal(emptyRes.status, 400);
+    assert.equal(emptyRes.body.message, 'Email dan password wajib diisi.');
+
+    // 2. Validasi kredensial salah / tidak terdaftar (HTTP 401, pesan generik aman)
+    const wrongPassRes = await postLogin({ email: 'demo@kampus.ac.id', password: 'SalahPassword123' });
+    assert.equal(wrongPassRes.status, 401);
+    assert.equal(wrongPassRes.body.message, 'Email atau password salah.');
+
+    const notFoundRes = await postLogin({ email: 'unknown@kampus.ac.id', password: 'Password123!' });
+    assert.equal(notFoundRes.status, 401);
+    assert.equal(notFoundRes.body.message, 'Email atau password salah.');
+
+    // 3. Login berhasil dengan akun demo (HTTP 200, JWT token valid, profil user tanpa passwordHash)
+    const successRes = await postLogin({ email: 'demo@kampus.ac.id', password: 'Demo123!' });
+    assert.equal(successRes.status, 200);
+    assert.equal(successRes.body.token_type, 'Bearer');
+    assert.equal(successRes.body.expires_in, 3600);
+    assert.ok(successRes.body.access_token, 'Access token harus dikembalikan server');
+
+    // Periksa struktur JWT (3 segmen base64url: header.payload.signature)
+    const parts = successRes.body.access_token.split('.');
+    assert.equal(parts.length, 3, 'JWT harus memiliki 3 bagian (header, payload, signature)');
+    const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    assert.equal(header.alg, 'HS256');
+    assert.equal(header.typ, 'JWT');
+    assert.equal(payload.sub, 1);
+    assert.ok(payload.jti, 'Token harus memiliki jti unik');
+    assert.ok(payload.exp > payload.iat, 'Waktu kedaluwarsa exp harus lebih besar dari iat');
+
+    // Pastikan user object tidak membocorkan hash password
+    assert.equal(successRes.body.user.id, 1);
+    assert.equal(successRes.body.user.email, 'demo@kampus.ac.id');
+    assert.equal(successRes.body.user.passwordHash, undefined);
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+

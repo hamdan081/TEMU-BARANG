@@ -212,6 +212,7 @@ export default function App(){
    setScreen('login');setMessage('Akun berhasil dibuat. Silakan masuk.');
   }catch(e){setError(e.message);}finally{setBusy(false);}
  };
+ // Week 5 Task 01: Token Authentication (POST login via API, simpan access token di SecureStore, update authUser)
  const doLogin=async()=>{
   if(!authForm.email.trim()||!authForm.password){setError('Email dan password wajib diisi.');return;}
   setBusy(true);setError('');setMessage('');

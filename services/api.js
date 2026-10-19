@@ -34,6 +34,7 @@ export async function request(path,{method='GET',body,authenticated=false}={}){
   }finally{clearTimeout(timer);}
 }
 export const registerUser=(name,email,password)=>request('/auth/register',{method:'POST',body:{name,email,password}});
+// Week 5 Task 01: POST /auth/login - kirim email & password via JSON, terima access_token JWT asli dari backend.
 export const loginWithAPI=(email,password)=>request('/auth/login',{method:'POST',body:{email,password}});
 export const getProfile=()=>request('/me',{authenticated:true});
 export const logoutAPI=()=>request('/auth/logout',{method:'POST',authenticated:true});
