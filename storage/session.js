@@ -16,6 +16,10 @@ export async function clearSession(){
   await SecureStore.deleteItemAsync(TOKEN_KEY);
   await AsyncStorage.removeItem(PROFILE_KEY);
 }
+export async function hasToken(){
+  const token=await getToken();
+  return Boolean(token);
+}
 export async function savePreference(preference){
   await AsyncStorage.setItem(PREF_KEY,JSON.stringify(preference));
 }

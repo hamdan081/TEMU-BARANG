@@ -154,26 +154,48 @@ export default function App(){
   }finally{setLoadingItems(false);}
  },[guarded]);
 
- // Week 3+5: restore session by validating stored token with server /me.
- useEffect(()=>{
-  let active=true;
-  (async()=>{
-   try{
-    const preferences=await getPreference();
-    if(active)setCompactMode(Boolean(preferences.compactMode));
-    const token=await getToken();
-    if(token){
-      const profile=await getProfile();
-      if(active){setAuthUser(profile.user);setScreen('home');}
-    }
-   }catch(e){
-    if(e.status===401)await clearSession().catch(()=>{});
-    else if(active)setError('Tidak dapat memeriksa sesi. Hubungkan kembali ke API dan login.');
+ // Week 5 Task 03: Session Management (checkSession & restoreSession)
+ const checkSession = useCallback(async () => {
+  try {
+   const token = await getToken();
+   if (!token) return null;
+   // Jangan menganggap token pasti valid hanya karena tersimpan di SecureStore.
+   // Validasi token langsung ke endpoint backend GET /me.
+   const profile = await getProfile();
+   return profile?.user || null;
+  } catch (e) {
+   if (e.status === 401) {
+    await clearSession().catch(() => {});
    }
-   finally{if(active)setBooting(false);}
-  })();
-  return()=>{active=false;};
- },[]);
+   return null;
+  }
+ }, []);
+
+ const restoreSession = useCallback(async () => {
+  try {
+   const preferences = await getPreference();
+   setCompactMode(Boolean(preferences.compactMode));
+   const validUser = await checkSession();
+   if (validUser) {
+    setAuthUser(validUser);
+    setScreen('home');
+   } else {
+    setAuthUser(null);
+    setScreen('login');
+   }
+  } catch (e) {
+   await clearSession().catch(() => {});
+   setAuthUser(null);
+   setScreen('login');
+   setError('Tidak dapat memeriksa sesi. Hubungkan kembali ke API dan login.');
+  } finally {
+   setBooting(false);
+  }
+ }, [checkSession]);
+
+ useEffect(() => {
+  restoreSession();
+ }, [restoreSession]);
  useEffect(()=>{if(authenticated)refreshItems();},[authenticated,refreshItems]);
 
  const changeAuth=(key,value)=>{setAuthForm(current=>({...current,[key]:value}));setError('');};
@@ -201,14 +223,40 @@ export default function App(){
    setAuthUser(result.user);setScreen('home');
   }catch(e){setError(e.message||'Login gagal.');}finally{setBusy(false);}
  };
- const doLogout=async()=>{
-  setBusy(true);setError('');let remoteFailed=false;
-  try{await logoutAPI();}catch(e){remoteFailed=true;}
-  try{await clearSession();}catch(e){setError('Gagal menghapus sesi lokal. Coba kembali.');setBusy(false);return;}
-  setAuthUser(null);setItems([]);setSelected(null);setScreen('login');
-  setAuthForm({name:'',email:'',password:'',confirm:''});setMessage(remoteFailed?'Keluar dari perangkat ini; server tidak terjangkau, token lama akan kedaluwarsa.':'Kamu berhasil keluar dari akun.');
+ // Week 5 Task 03: Session Management (logout)
+ const logout = async () => {
+  setBusy(true);
+  setError('');
+  let remoteFailed = false;
+  try {
+   // 1. Cabut token pada server (revokasi jti token)
+   await logoutAPI();
+  } catch (e) {
+   remoteFailed = true;
+  }
+  try {
+   // 2. Hapus access token dari SecureStore dan profil dari AsyncStorage
+   await clearSession();
+  } catch (e) {
+   setError('Gagal menghapus sesi lokal. Coba kembali.');
+   setBusy(false);
+   return;
+  }
+  // 3. Bersihkan protected data dan cache dari memory
+  setAuthUser(null);
+  setItems([]);
+  setSelected(null);
+  // 4. Ubah status dan arahkan ke login (isAuthenticated false, tidak bisa back ke Home)
+  setScreen('login');
+  setAuthForm({ name: '', email: '', password: '', confirm: '' });
+  setMessage(
+   remoteFailed
+    ? 'Keluar dari perangkat ini; server tidak terjangkau, token lama akan kedaluwarsa.'
+    : 'Kamu berhasil keluar dari akun.'
+  );
   setBusy(false);
  };
+ const doLogout = logout;
  const navigate=target=>{setScreen(target);setError('');setMessage('');};
  const selectItem=item=>{setSelected(item);navigate('detail');};
  const startReport=status=>{setForm({...blankForm,status});setSelectedImage(null);setSelectedImageBase64(null);navigate('report');};
@@ -386,7 +434,7 @@ export default function App(){
       }}/>
       <Text style={styles.hint}>Mode ringkas menyimpan preferensi tampilan. Login menggunakan token server yang disimpan di SecureStore.</Text>
       <StatusMessage message={error} error/>
-      <UIButton title={busy?'Memproses...':'Keluar (Logout)'} danger disabled={busy} onPress={()=>Alert.alert('Konfirmasi Logout','Keluar dari akun TemuKampus?', [{text:'Batal',style:'cancel'},{text:'Keluar',style:'destructive',onPress:doLogout}])}/>
+      <UIButton title={busy?'Memproses...':'Keluar (Logout)'} danger disabled={busy} onPress={()=>Alert.alert('Konfirmasi Logout','Keluar dari akun TemuKampus?', [{text:'Batal',style:'cancel'},{text:'Keluar',style:'destructive',onPress:logout}])}/>
      </>}
     </>)}
    </ScrollView>}
