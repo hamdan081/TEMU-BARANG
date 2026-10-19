@@ -133,3 +133,95 @@ test('Week 5 Task 01 - Token Authentication (Login API, Credential Validation, a
   }
 });
 
+test('Week 5 Task 02 - Protected API Request (Authorization Bearer Token, 401, 403, and GET /barang)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'temukampus-w5t2-'));
+  const server = createApp({ dataDir: dir, secret: 'w5t2-secret-key-for-test-only' });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+
+  const requestEndpoint = async (path, { method = 'GET', authHeader, body } = {}) => {
+    const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json' };
+    if (authHeader) headers.Authorization = authHeader;
+    const res = await fetch(`${url}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: res.status, body: await res.json() };
+  };
+
+  try {
+    // 1. Request protected endpoint GET /barang TANPA token -> harus ditolak (HTTP 401 Unauthorized)
+    const noTokenRes = await requestEndpoint('/barang');
+    assert.equal(noTokenRes.status, 401, 'Request tanpa token harus mengembalikan HTTP 401');
+    assert.match(noTokenRes.body.message, /sesi tidak valid|silakan login/i);
+
+    // 2. Request dengan Authorization header BUKAN Bearer -> harus ditolak (HTTP 401)
+    const basicAuthRes = await requestEndpoint('/barang', { authHeader: 'Basic dXNlcjpwYXNz' });
+    assert.equal(basicAuthRes.status, 401, 'Authorization skema non-Bearer harus ditolak');
+
+    // 3. Request dengan token invalid / acak -> harus ditolak (HTTP 401)
+    const invalidTokenRes = await requestEndpoint('/barang', { authHeader: 'Bearer eyJhbGciOi...palsu' });
+    assert.equal(invalidTokenRes.status, 401, 'Token JWT invalid/palsu harus mengembalikan HTTP 401');
+
+    // 4. Login untuk mendapatkan access token JWT asli
+    const loginRes = await fetch(`${url}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'demo@kampus.ac.id', password: 'Demo123!' }),
+    });
+    const loginData = await loginRes.json();
+    assert.equal(loginRes.status, 200);
+    const validToken = loginData.access_token;
+    assert.ok(validToken, 'Access token harus ada');
+
+    // 5. Request protected endpoint GET /barang dengan Bearer token VALID -> harus berhasil (HTTP 200 OK)
+    const validRes = await requestEndpoint('/barang', { authHeader: `Bearer ${validToken}` });
+    assert.equal(validRes.status, 200, 'Request dengan token valid harus mengembalikan HTTP 200');
+    assert.ok(Array.isArray(validRes.body.data), 'Data barang harus berupa array');
+    assert.ok(validRes.body.data.length >= 4, 'Data barang default harus lengkap');
+    
+    // Pastikan field barang bersih (rahasia verifikasi verificationSecret tidak bocor ke client)
+    const firstItem = validRes.body.data[0];
+    assert.ok(firstItem.id !== undefined);
+    assert.ok(firstItem.nama);
+    assert.ok(firstItem.status);
+    assert.equal(firstItem.verificationSecret, undefined, 'verificationSecret tidak boleh bocor');
+
+    // 6. Request GET /me dengan Bearer token valid -> verifikasi identitas (HTTP 200)
+    const meRes = await requestEndpoint('/me', { authHeader: `Bearer ${validToken}` });
+    assert.equal(meRes.status, 200);
+    assert.equal(meRes.body.user.email, 'demo@kampus.ac.id');
+
+    // 7. Pengujian HTTP 403 Forbidden: Pembaruan status oleh pengguna yang BUKAN pemilik laporan
+    // Register user baru (bukan owner item awal yang ber-ownerId 0)
+    const regRes = await fetch(`${url}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Pengguna Lain', email: 'lain@kampus.ac.id', password: 'PasswordLain123!' }),
+    });
+    assert.equal(regRes.status, 201);
+
+    const loginLainRes = await fetch(`${url}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'lain@kampus.ac.id', password: 'PasswordLain123!' }),
+    });
+    const loginLainData = await loginLainRes.json();
+    const tokenUserLain = loginLainData.access_token;
+
+    // Coba ubah status barang ID 1 dengan token user lain -> harus 403 Forbidden
+    const forbiddenRes = await requestEndpoint('/barang/1/status', {
+      method: 'PATCH',
+      authHeader: `Bearer ${tokenUserLain}`,
+      body: { status: 'Dikembalikan' },
+    });
+    assert.equal(forbiddenRes.status, 403, 'User yang bukan pemilik harus mendapatkan HTTP 403 Forbidden');
+    assert.match(forbiddenRes.body.message, /hanya pembuat laporan/i);
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
