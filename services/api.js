@@ -36,13 +36,20 @@ export async function request(path,{method='GET',body,authenticated=false}={}){
 export const registerUser=(name,email,password)=>request('/auth/register',{method:'POST',body:{name,email,password}});
 // Week 5 Task 01: POST /auth/login - kirim email & password via JSON, terima access_token JWT asli dari backend.
 export const loginWithAPI=(email,password)=>request('/auth/login',{method:'POST',body:{email,password}});
-export const getProfile=()=>request('/me',{authenticated:true});
-export const logoutAPI=()=>request('/auth/logout',{method:'POST',authenticated:true});
-// Week 4: GET response JSON -> DTO Barang -> UI.
-export const fetchBarang=async()=>{
- const response=await request('/barang',{authenticated:true});
- if(!Array.isArray(response.data))throw new ApiError('Format data API tidak sesuai.');
- return response.data.map(mapBarang);
+// Week 5 Task 02: Helper authenticatedFetch() untuk request ke protected REST API endpoint.
+// Mengambil token dari SecureStore via getToken() dan menyematkannya ke header Authorization: Bearer <token>.
+export async function authenticatedFetch(path, options = {}) {
+  return request(path, { ...options, authenticated: true });
+}
+
+export const getProfile = () => authenticatedFetch('/me');
+export const logoutAPI = () => authenticatedFetch('/auth/logout', { method: 'POST' });
+
+// Week 4 & Week 5 Task 02: GET protected endpoint /barang dengan Bearer token -> DTO Barang -> UI.
+export const fetchBarang = async () => {
+  const response = await authenticatedFetch('/barang');
+  if (!Array.isArray(response.data)) throw new ApiError('Format data API tidak sesuai.');
+  return response.data.map(mapBarang);
 };
 export const createBarang=async form=>{
  const response=await request('/barang',{method:'POST',authenticated:true,body:form});
