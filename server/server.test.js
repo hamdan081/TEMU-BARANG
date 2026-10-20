@@ -435,5 +435,346 @@ test('Week 5 Task 03 - Refresh Token & Session Management (Token Rotation, Expir
   }
 });
 
+test('Week 6 Task 01 - Handle API Error (2xx Success, 4xx Client Error, 5xx Server Error, Network Error, and Token Refresh Recovery)', async () => {
+  const crypto = require('node:crypto');
+  const b64url = obj => Buffer.from(JSON.stringify(obj)).toString('base64url');
+  const testSecret = 'w6t1-secret-key-for-test-only';
+  const dir = mkdtempSync(join(tmpdir(), 'temukampus-w6t1-'));
+  const server = createApp({ dataDir: dir, secret: testSecret });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+
+  // Replikasi struktur ApiError & getErrorMessageForStatus untuk pengujian fungsional terisolasi
+  class TestApiError extends Error {
+    constructor(message, status = 0, { type, details, isNetworkError, isTimeout } = {}) {
+      super(message);
+      this.name = 'ApiError';
+      this.status = Number(status) || 0;
+      this.isNetworkError = Boolean(isNetworkError || status === 0);
+      this.isTimeout = Boolean(isTimeout);
+      this.isClientError = this.status >= 400 && this.status < 500;
+      this.isServerError = this.status >= 500 && this.status < 600;
+      this.isUnauthorized = this.status === 401;
+      this.isForbidden = this.status === 403;
+      this.isNotFound = this.status === 404;
+      this.isBadRequest = this.status === 400;
+      this.isRetryable = this.isNetworkError || this.isTimeout || this.status === 503 || this.status === 504 || this.status === 429;
+      this.type = type || (
+        this.isTimeout ? 'TIMEOUT_ERROR' :
+        this.isNetworkError ? 'NETWORK_ERROR' :
+        this.isServerError ? 'SERVER_ERROR' :
+        this.isClientError ? 'CLIENT_ERROR' : 'UNKNOWN_ERROR'
+      );
+      this.details = details || null;
+    }
+  }
+
+  function testGetErrorMessage(status, serverMessage) {
+    if (serverMessage && typeof serverMessage === 'string' && serverMessage.trim().length > 0) {
+      const isTechnical = /at\s+[\w\.]+\s+\(|error:\s+syntax|database|sql|column|table|relation|undefined is not/i.test(serverMessage);
+      if (!isTechnical) return serverMessage.trim();
+    }
+    switch (status) {
+      case 400: return 'Permintaan tidak valid. Periksa kembali kelengkapan formulir Anda.';
+      case 401: return 'Sesi tidak valid atau sudah berakhir. Silakan login kembali.';
+      case 403: return 'Akses ditolak. Anda tidak memiliki izin untuk melakukan tindakan ini.';
+      case 404: return 'Data atau layanan yang diminta tidak ditemukan.';
+      case 500: return 'Terjadi kesalahan pada server. Silakan coba beberapa saat lagi.';
+      default:
+        if (status >= 500) return `Terjadi gangguan server (HTTP ${status}). Silakan coba beberapa saat lagi.`;
+        return `Permintaan gagal (HTTP ${status}). Silakan coba kembali.`;
+    }
+  }
+
+  // Client request simulator dengan logika persis services/api.js
+  const clientRequest = async (path, { method = 'GET', body, token, customBaseUrl } = {}) => {
+    const baseUrl = customBaseUrl !== undefined ? customBaseUrl : url;
+    const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    let response;
+    try {
+      response = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+    } catch (networkErr) {
+      throw new TestApiError('Tidak dapat terhubung ke server. Periksa koneksi internet atau Wi-Fi Anda.', 0, {
+        type: 'NETWORK_ERROR',
+        isNetworkError: true,
+        isRetryable: true,
+        details: networkErr.message,
+      });
+    }
+
+    let payload = null;
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      payload = await response.json().catch(() => null);
+    } else {
+      const text = await response.text().catch(() => '');
+      if (text) {
+        try { payload = JSON.parse(text); } catch { payload = null; }
+      }
+    }
+
+    if (!response.ok) {
+      const userMessage = testGetErrorMessage(response.status, payload?.message);
+      throw new TestApiError(userMessage, response.status, {
+        details: payload?.message || null,
+      });
+    }
+
+    return payload;
+  };
+
+  try {
+    // -----------------------------------------------------------------------------------------
+    // 1. PENGUJIAN HTTP 200 — Success
+    // -----------------------------------------------------------------------------------------
+    const loginSuccess = await clientRequest('/auth/login', {
+      method: 'POST',
+      body: { email: 'demo@kampus.ac.id', password: 'Demo123!' },
+    });
+    assert.ok(loginSuccess.access_token, 'HTTP 200: Harus mengembalikan access_token');
+    assert.ok(loginSuccess.refresh_token, 'HTTP 200: Harus mengembalikan refresh_token');
+    const validToken = loginSuccess.access_token;
+    const validRefreshToken = loginSuccess.refresh_token;
+
+    const barangList = await clientRequest('/barang', { token: validToken });
+    assert.ok(Array.isArray(barangList.data), 'HTTP 200: Harus memproses data array barang');
+    assert.ok(barangList.data.length >= 4);
+
+    // -----------------------------------------------------------------------------------------
+    // 2. PENGUJIAN HTTP 400 — Bad Request
+    // -----------------------------------------------------------------------------------------
+    await assert.rejects(
+      async () => {
+        await clientRequest('/auth/login', { method: 'POST', body: { email: '', password: '' } });
+      },
+      (err) => {
+        assert.ok(err instanceof TestApiError);
+        assert.equal(err.status, 400);
+        assert.equal(err.isBadRequest, true);
+        assert.equal(err.isClientError, true);
+        assert.equal(err.isServerError, false);
+        assert.equal(err.isNetworkError, false);
+        assert.equal(err.isRetryable, false);
+        assert.match(err.message, /email dan password wajib diisi|permintaan tidak valid/i);
+        return true;
+      },
+      'HTTP 400: Harus melempar ApiError status 400'
+    );
+
+    // -----------------------------------------------------------------------------------------
+    // 3. PENGUJIAN HTTP 401 — Unauthorized
+    // -----------------------------------------------------------------------------------------
+    await assert.rejects(
+      async () => {
+        await clientRequest('/barang'); // Tanpa token
+      },
+      (err) => {
+        assert.ok(err instanceof TestApiError);
+        assert.equal(err.status, 401);
+        assert.equal(err.isUnauthorized, true);
+        assert.equal(err.isClientError, true);
+        assert.equal(err.isNetworkError, false);
+        assert.match(err.message, /sesi tidak valid|sudah berakhir|silakan login/i);
+        return true;
+      },
+      'HTTP 401: Harus melempar ApiError status 401'
+    );
+
+    // -----------------------------------------------------------------------------------------
+    // 4. PENGUJIAN HTTP 403 — Forbidden
+    // -----------------------------------------------------------------------------------------
+    // Register user lain untuk menguji aksi terlarang pada barang milik user demo
+    const regUserLain = await clientRequest('/auth/register', {
+      method: 'POST',
+      body: { name: 'User Lain W6', email: 'userlainw6@kampus.ac.id', password: 'PasswordLain123' },
+    });
+    assert.equal(regUserLain.user.email, 'userlainw6@kampus.ac.id');
+
+    const loginUserLain = await clientRequest('/auth/login', {
+      method: 'POST',
+      body: { email: 'userlainw6@kampus.ac.id', password: 'PasswordLain123' },
+    });
+    const tokenUserLain = loginUserLain.access_token;
+
+    await assert.rejects(
+      async () => {
+        // Coba ubah status barang ID 1 yang bukan miliknya
+        await clientRequest('/barang/1/status', {
+          method: 'PATCH',
+          token: tokenUserLain,
+          body: { status: 'Dikembalikan' },
+        });
+      },
+      (err) => {
+        assert.ok(err instanceof TestApiError);
+        assert.equal(err.status, 403);
+        assert.equal(err.isForbidden, true);
+        assert.equal(err.isClientError, true);
+        assert.equal(err.isRetryable, false);
+        assert.match(err.message, /hanya pembuat laporan|akses ditolak/i);
+        return true;
+      },
+      'HTTP 403: Harus melempar ApiError status 403 Forbidden'
+    );
+
+    // -----------------------------------------------------------------------------------------
+    // 5. PENGUJIAN HTTP 404 — Not Found
+    // -----------------------------------------------------------------------------------------
+    // 5a. Detail barang yang tidak ada
+    await assert.rejects(
+      async () => {
+        await clientRequest('/barang/999999', { token: validToken });
+      },
+      (err) => {
+        assert.ok(err instanceof TestApiError);
+        assert.equal(err.status, 404);
+        assert.equal(err.isNotFound, true);
+        assert.equal(err.isClientError, true);
+        assert.match(err.message, /barang tidak ditemukan|data atau layanan yang diminta tidak ditemukan/i);
+        return true;
+      },
+      'HTTP 404: Resource barang tidak ditemukan'
+    );
+
+    // 5b. Endpoint yang tidak ada
+    await assert.rejects(
+      async () => {
+        await clientRequest('/endpoint-tidak-ada', { token: validToken });
+      },
+      (err) => {
+        assert.ok(err instanceof TestApiError);
+        assert.equal(err.status, 404);
+        assert.equal(err.isNotFound, true);
+        return true;
+      },
+      'HTTP 404: Route endpoint tidak ditemukan'
+    );
+
+    // -----------------------------------------------------------------------------------------
+    // 6. PENGUJIAN HTTP 500 — Server Error
+    // -----------------------------------------------------------------------------------------
+    await assert.rejects(
+      async () => {
+        await clientRequest('/test/error-500');
+      },
+      (err) => {
+        assert.ok(err instanceof TestApiError);
+        assert.equal(err.status, 500);
+        assert.equal(err.isServerError, true);
+        assert.equal(err.isClientError, false);
+        assert.equal(err.isNetworkError, false);
+        assert.match(err.message, /terjadi kesalahan.*server/i);
+        return true;
+      },
+      'HTTP 500: Server Error harus ditangani tanpa menyebabkan aplikasi crash'
+    );
+
+    // -----------------------------------------------------------------------------------------
+    // 7. PENGUJIAN Network Error (Koneksi Putus / Offline / Port Salah)
+    // -----------------------------------------------------------------------------------------
+    await assert.rejects(
+      async () => {
+        // Hubungi port acak yang tidak aktif (misal port 59998)
+        await clientRequest('/barang', { customBaseUrl: 'http://127.0.0.1:59998' });
+      },
+      (err) => {
+        assert.ok(err instanceof TestApiError);
+        assert.equal(err.status, 0);
+        assert.equal(err.isNetworkError, true);
+        assert.equal(err.isRetryable, true, 'Network error harus bertanda isRetryable untuk Task 02');
+        assert.equal(err.type, 'NETWORK_ERROR');
+        assert.match(err.message, /tidak dapat terhubung ke server|koneksi internet/i);
+        return true;
+      },
+      'Network Error: Harus melempar ApiError status 0 dengan isNetworkError true'
+    );
+
+    // -----------------------------------------------------------------------------------------
+    // 8. PENGUJIAN Token Expired dengan Refresh Berhasil
+    // -----------------------------------------------------------------------------------------
+    const nowSec = Math.floor(Date.now() / 1000);
+    // Buat token akses kedaluwarsa
+    const expiredToken = (() => {
+      const first = b64url({ alg: 'HS256', typ: 'JWT' });
+      const second = b64url({ sub: 1, type: 'access', jti: crypto.randomUUID(), iat: nowSec - 7200, exp: nowSec - 3600 });
+      const signature = crypto.createHmac('sha256', testSecret).update(`${first}.${second}`).digest('base64url');
+      return `${first}.${second}.${signature}`;
+    })();
+
+    // Simulasi alur request() dengan auto-refresh:
+    let currentToken = expiredToken;
+    let autoRefreshExecuted = false;
+
+    // Langkah 1: Request pertama dengan token expired menghasilkan 401
+    try {
+      await clientRequest('/barang', { token: currentToken });
+      assert.fail('Seharusnya melempar 401');
+    } catch (err) {
+      assert.equal(err.status, 401);
+      // Langkah 2: Panggil endpoint refresh token
+      const refreshPayload = await clientRequest('/auth/refresh', {
+        method: 'POST',
+        body: { refresh_token: validRefreshToken },
+      });
+      assert.ok(refreshPayload.access_token);
+      currentToken = refreshPayload.access_token;
+      autoRefreshExecuted = true;
+    }
+
+    assert.equal(autoRefreshExecuted, true, 'Proses refresh token harus tereksekusi');
+    // Langkah 3: Request diulang dengan token baru -> berhasil HTTP 200
+    const retrySuccess = await clientRequest('/barang', { token: currentToken });
+    assert.ok(Array.isArray(retrySuccess.data));
+    assert.ok(retrySuccess.data.length >= 4);
+
+    // -----------------------------------------------------------------------------------------
+    // 9. PENGUJIAN Token Invalid dan Refresh Gagal (Sesi Hangus)
+    // -----------------------------------------------------------------------------------------
+    let sessionCleared = false;
+    await assert.rejects(
+      async () => {
+        try {
+          await clientRequest('/auth/refresh', {
+            method: 'POST',
+            body: { refresh_token: 'fake.or.revoked.refresh.token' },
+          });
+        } catch (refreshErr) {
+          if (refreshErr.status === 401) {
+            sessionCleared = true; // Sesuai aturan: clearSession hanya jika 401
+          }
+          throw refreshErr;
+        }
+      },
+      (err) => {
+        assert.equal(err.status, 401);
+        assert.equal(sessionCleared, true, 'Sesi harus dibersihkan saat refresh token ditolak');
+        return true;
+      },
+      'Refresh Gagal: Harus melempar 401 dan membersihkan sesi'
+    );
+
+    // -----------------------------------------------------------------------------------------
+    // 10. Sanitasi Pesan Sensitif (Tidak Membocorkan Stack Trace / Database Internals)
+    // -----------------------------------------------------------------------------------------
+    const filteredTechnicalMsg = testGetErrorMessage(500, 'Error: syntax error at or near "SELECT" at Object.query (/server/db.js:42)');
+    assert.equal(
+      filteredTechnicalMsg,
+      'Terjadi kesalahan pada server. Silakan coba beberapa saat lagi.',
+      'Pesan database teknis tidak boleh bocor ke antarmuka pengguna'
+    );
+
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
 
 

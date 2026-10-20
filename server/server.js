@@ -106,6 +106,7 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
     if(req.method==='OPTIONS'){res.statusCode=204;res.end();return;}
     const url=new URL(req.url,'http://localhost');
     if(req.method==='GET' && url.pathname==='/health')return send(200,{status:'ok',service:'TemuKampus Demo API'});
+    if(req.method==='GET' && url.pathname==='/test/error-500')return send(500,{message:'Terjadi kesalahan internal pada server (simulasi pengujian).'});
     if(req.method==='GET' && url.pathname.startsWith('/uploads/')){
       const cleanName = path.basename(url.pathname);
       const filePath = path.join(uploadsDir, cleanName);
