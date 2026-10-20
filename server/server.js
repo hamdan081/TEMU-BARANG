@@ -72,7 +72,7 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
     const signature=crypto.createHmac('sha256',signingSecret).update(`${first}.${second}`).digest('base64url');
     return `${first}.${second}.${signature}`;
   };
-  function validateToken(token) {
+  function decodeToken(token) {
     if(!token||typeof token!=='string')return null;
     const parts=token.split('.');
     if(parts.length!==3)return null;
@@ -81,10 +81,17 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
     try {
       const head=JSON.parse(Buffer.from(parts[0],'base64url').toString());
       const data=JSON.parse(Buffer.from(parts[1],'base64url').toString());
-      if(head.alg!=='HS256'||data.exp<=Math.floor(Date.now()/1000)||db.revokedJtis.includes(data.jti))return null;
-      const user=db.users.find(u=>u.id===data.sub);
-      return user?{user,tokenData:data}:null;
+      if(head.alg!=='HS256')return null;
+      return data;
     }catch{return null;}
+  }
+  function validateToken(token, expectedType='access') {
+    const data=decodeToken(token);
+    if(!data)return null;
+    if(data.exp<=Math.floor(Date.now()/1000)||db.revokedJtis.includes(data.jti))return null;
+    if(expectedType && (data.type || 'access') !== expectedType) return null;
+    const user=db.users.find(u=>u.id===data.sub);
+    return user?{user,tokenData:data}:null;
   }
   const publicUser=u=>({id:u.id,name:u.name,email:u.email});
   const publicBarang=b=>({id:b.id,nama:b.nama,kategori:b.kategori,deskripsi:b.deskripsi,lokasi:b.lokasi,tanggal:b.tanggal,image:b.image,status:b.status,pelapor:b.pelapor,ownerId:b.ownerId,verificationStatus:b.verificationStatus});
@@ -138,8 +145,66 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
         return send(401,{message:'Email atau password salah.'});
       }
       attempts.delete(key);
-      const token=sign({sub:user.id,jti:crypto.randomUUID(),iat:Math.floor(now/1000),exp:Math.floor(now/1000)+3600});
-      return send(200,{access_token:token,token_type:'Bearer',expires_in:3600,user:publicUser(user)});
+      const nowSec = Math.floor(now/1000);
+      const accessToken = sign({sub:user.id, type:'access', jti:crypto.randomUUID(), iat:nowSec, exp:nowSec + 3600});
+      const refreshToken = sign({sub:user.id, type:'refresh', jti:crypto.randomUUID(), iat:nowSec, exp:nowSec + 7 * 86400});
+      return send(200,{
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        token_type: 'Bearer',
+        expires_in: 3600,
+        user: publicUser(user)
+      });
+    }
+    // Week 5 Task 03: Endpoint POST /auth/refresh untuk memperbarui access token via refresh token & token rotation
+    if(req.method==='POST'&&url.pathname==='/auth/refresh'){
+      const rToken = typeof body.refresh_token === 'string' ? body.refresh_token.trim() : '';
+      if(!rToken) return send(400, {message: 'Refresh token wajib diisi.'});
+      const valid = validateToken(rToken, 'refresh');
+      if(!valid) return send(401, {message: 'Refresh token tidak valid, kedaluwarsa, atau telah dicabut.'});
+
+      // Token rotation: cabut jti refresh token yang lama
+      db.revokedJtis.push(valid.tokenData.jti);
+
+      // Terbitkan access token baru dan refresh token baru
+      const nowSec = Math.floor(Date.now()/1000);
+      const newAccessToken = sign({sub:valid.user.id, type:'access', jti:crypto.randomUUID(), iat:nowSec, exp:nowSec + 3600});
+      const newRefreshToken = sign({sub:valid.user.id, type:'refresh', jti:crypto.randomUUID(), iat:nowSec, exp:nowSec + 7 * 86400});
+      save();
+
+      return send(200, {
+        access_token: newAccessToken,
+        refresh_token: newRefreshToken,
+        token_type: 'Bearer',
+        expires_in: 3600,
+        user: publicUser(valid.user)
+      });
+    }
+    // Week 5 Task 03: Endpoint POST /auth/logout - mencabut jti access token & refresh token pada server
+    if(req.method==='POST'&&url.pathname==='/auth/logout'){
+      const authorization=req.headers.authorization||'';
+      const bearer=authorization.startsWith('Bearer ')?authorization.slice(7):'';
+      let revokedCount = 0;
+
+      if(bearer){
+        const decoded = decodeToken(bearer);
+        if(decoded && decoded.jti){
+          if(!db.revokedJtis.includes(decoded.jti)) db.revokedJtis.push(decoded.jti);
+          revokedCount++;
+        }
+      }
+      if(body && typeof body.refresh_token === 'string' && body.refresh_token.trim()){
+        const decodedRefresh = decodeToken(body.refresh_token.trim());
+        if(decodedRefresh && decodedRefresh.jti){
+          if(!db.revokedJtis.includes(decodedRefresh.jti)) db.revokedJtis.push(decodedRefresh.jti);
+          revokedCount++;
+        }
+      }
+      if(revokedCount === 0){
+        return send(401, {message: 'Sesi tidak valid atau sudah berakhir. Silakan login.'});
+      }
+      save();
+      return send(200, {message: 'Logout berhasil. Sesi dan token telah dicabut.'});
     }
     const authorization=req.headers.authorization||'';
     const auth=authorization.startsWith('Bearer ')?validateToken(authorization.slice(7)):null;
@@ -200,9 +265,7 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
       });
     }
     if(req.method==='GET'&&url.pathname==='/me')return send(200,{user:publicUser(auth.user)});
-    if(req.method==='POST'&&url.pathname==='/auth/logout'){
-      db.revokedJtis.push(auth.tokenData.jti);save();return send(200,{message:'Logout berhasil.'});
-    }
+
     if(req.method==='GET'&&url.pathname==='/barang'){
       return send(200,{data:db.barang.slice().sort((a,b)=>b.id-a.id).map(publicBarang)});
     }

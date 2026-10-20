@@ -21,7 +21,7 @@ import LatestItems from './components/LatestItems';
 import BottomNav from './components/BottomNav';
 import ItemCard from './components/ItemCard';
 import {categories} from './models/Barang';
-import {API_BASE_URL,ApiError,registerUser,loginWithAPI,getProfile,logoutAPI,fetchBarang,createBarang,verifyBarang,markReturned,uploadPhoto,resolveImageUrl} from './services/api';
+import {API_BASE_URL,ApiError,registerUser,loginWithAPI,getProfile,logoutAPI,fetchBarang,createBarang,verifyBarang,markReturned,uploadPhoto,resolveImageUrl,refreshAccessToken} from './services/api';
 import {clearSession,getToken,saveSession,savePreference,getPreference} from './storage/session';
 
 const primary='#1565C0';
@@ -212,17 +212,26 @@ export default function App(){
    setScreen('login');setMessage('Akun berhasil dibuat. Silakan masuk.');
   }catch(e){setError(e.message);}finally{setBusy(false);}
  };
- // Week 5 Task 01: Token Authentication (POST login via API, simpan access token di SecureStore, update authUser)
+ // Week 5 Task 01 & 03: Token Authentication & Refresh Token (simpan access_token & refresh_token di SecureStore)
  const doLogin=async()=>{
   if(!authForm.email.trim()||!authForm.password){setError('Email dan password wajib diisi.');return;}
   setBusy(true);setError('');setMessage('');
   try{
    const result=await loginWithAPI(authForm.email.trim().toLowerCase(),authForm.password);
    if(!result.access_token||!result.user)throw new Error('Server tidak memberikan token dan profil yang valid.');
-   await saveSession(result.access_token,result.user);
+   await saveSession(result.access_token,result.user,result.refresh_token);
    setAuthForm({name:'',email:'',password:'',confirm:''});
    setAuthUser(result.user);setScreen('home');
   }catch(e){setError(e.message||'Login gagal.');}finally{setBusy(false);}
+ };
+ // Week 5 Task 03: Demonstrasi pembaruan access token secara manual di profil
+ const handleDemoRefresh=async()=>{
+  setBusy(true);setError('');setMessage('');
+  try{
+   await refreshAccessToken();
+   setMessage('Demonstrasi: Access token berhasil di-refresh & dirotasi!');
+   Alert.alert('Sukses Refresh Token','Access token baru berhasil diterbitkan server dan disimpan di Expo SecureStore.');
+  }catch(e){setError(e.message||'Gagal memperbarui token.');}finally{setBusy(false);}
  };
  // Week 5 Task 03: Session Management (logout)
  const logout = async () => {
@@ -435,6 +444,7 @@ export default function App(){
       }}/>
       <Text style={styles.hint}>Mode ringkas menyimpan preferensi tampilan. Login menggunakan token server yang disimpan di SecureStore.</Text>
       <StatusMessage message={error} error/>
+      <UIButton title={busy?'Memproses...':'Simulasi Refresh Token'} outline disabled={busy} onPress={handleDemoRefresh}/>
       <UIButton title={busy?'Memproses...':'Keluar (Logout)'} danger disabled={busy} onPress={()=>Alert.alert('Konfirmasi Logout','Keluar dari akun TemuKampus?', [{text:'Batal',style:'cancel'},{text:'Keluar',style:'destructive',onPress:logout}])}/>
      </>}
     </>)}

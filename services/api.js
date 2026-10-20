@@ -1,5 +1,5 @@
 import {mapBarang} from '../models/Barang';
-import {getToken} from '../storage/session';
+import {getToken, getRefreshToken, saveTokens, clearSession} from '../storage/session';
 
 // Configure EXPO_PUBLIC_API_BASE_URL in .env (e.g., http://192.168.1.5:4000)
 // The API is real and local for classroom use; no fabricated tokens or dummy API successes.
@@ -8,7 +8,58 @@ const timeout=15000;
 export class ApiError extends Error {
   constructor(message,status=0){super(message);this.name='ApiError';this.status=status;}
 }
-export async function request(path,{method='GET',body,authenticated=false}={}){
+
+let refreshPromise = null;
+
+// Week 5 Task 03: refreshAccessToken() mengambil refresh token dari SecureStore,
+// memanggil POST /auth/refresh, dan menyimpan pasangan token baru (token rotation).
+export async function refreshAccessToken() {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      const refreshToken = await getRefreshToken();
+      if (!refreshToken) {
+        throw new ApiError('Sesi berakhir. Refresh token tidak ditemukan.', 401);
+      }
+
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        await clearSession().catch(() => {});
+        throw new ApiError(payload?.message || 'Sesi telah berakhir. Silakan masuk kembali.', 401);
+      }
+
+      if (!payload?.access_token) {
+        await clearSession().catch(() => {});
+        throw new ApiError('Gagal mendapatkan access token baru dari server.', 401);
+      }
+
+      // Simpan access token baru & refresh token baru (rotasi) ke SecureStore
+      await saveTokens(payload.access_token, payload.refresh_token);
+      return payload.access_token;
+    } catch (err) {
+      if (err.status === 401) {
+        await clearSession().catch(() => {});
+      }
+      throw err;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
+export async function request(path,{method='GET',body,authenticated=false,_retry=false}={}){
   if(!API_BASE_URL)throw new ApiError('Alamat API belum diatur. Isi EXPO_PUBLIC_API_BASE_URL pada file .env.');
   const headers={'Accept':'application/json'};
   if(body!==undefined)headers['Content-Type']='application/json';
@@ -22,6 +73,23 @@ export async function request(path,{method='GET',body,authenticated=false}={}){
   try{
     const response=await fetch(`${API_BASE_URL}${path}`,{method,headers,body:body!==undefined?JSON.stringify(body):undefined,signal:controller.signal});
     const payload=await response.json().catch(()=>null);
+
+    // Week 5 Task 03: Jika 401 Unauthorized dan request belum pernah di-retry
+    if(response.status===401 && authenticated && !_retry && path!=='/auth/login' && path!=='/auth/refresh' && path!=='/auth/logout'){
+      // Auto-retry pada operasi idempotent (GET) setelah refresh token sukses
+      if(method==='GET'){
+        clearTimeout(timer);
+        try{
+          const newToken = await refreshAccessToken();
+          if(newToken){
+            return request(path,{method,body,authenticated:true,_retry:true});
+          }
+        }catch(refreshErr){
+          throw refreshErr instanceof ApiError ? refreshErr : new ApiError('Sesi kedaluwarsa. Silakan login kembali.',401);
+        }
+      }
+    }
+
     if(!response.ok){
       const fallback=response.status===401?'Sesi tidak valid atau sudah berakhir.':response.status===403?'Akses ditolak.':`API gagal (HTTP ${response.status}).`;
       throw new ApiError(payload?.message||fallback,response.status);
@@ -43,7 +111,15 @@ export async function authenticatedFetch(path, options = {}) {
 }
 
 export const getProfile = () => authenticatedFetch('/me');
-export const logoutAPI = () => authenticatedFetch('/auth/logout', { method: 'POST' });
+export const logoutAPI = async () => {
+  const token = await getToken().catch(() => null);
+  const refreshToken = await getRefreshToken().catch(() => null);
+  return request('/auth/logout', {
+    method: 'POST',
+    authenticated: Boolean(token),
+    body: refreshToken ? { refresh_token: refreshToken } : undefined,
+  });
+};
 
 // Week 4 & Week 5 Task 02: GET protected endpoint /barang dengan Bearer token -> DTO Barang -> UI.
 export const fetchBarang = async () => {
