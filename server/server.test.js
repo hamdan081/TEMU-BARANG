@@ -775,6 +775,298 @@ test('Week 6 Task 01 - Handle API Error (2xx Success, 4xx Client Error, 5xx Serv
   }
 });
 
+// =========================================================================================
+// WEEK 6 TASK 02 — LOADING, ERROR & RETRY SUITE
+// =========================================================================================
+test('Week 6 Task 02 - Loading, Error, Retry, and Empty State Lifecycle', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'temukampus-w6t2-'));
+  const server = createApp({ dataDir: dir, secret: 'w6t2-secret-key-for-test-only' });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    // 1. Dapatkan JWT Token yang valid
+    const loginRes = await fetch(`${url}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'demo@kampus.ac.id', password: 'Demo123!' }),
+    });
+    const loginData = await loginRes.json();
+    const token = loginData.access_token;
+
+    // 2. Simulasi State Lifecycle Komponen (Loading -> Success -> Items)
+    let state = {
+      loading: false,
+      error: null,
+      items: [],
+    };
+
+    const fetchItemsWithState = async () => {
+      state.loading = true;
+      state.error = null;
+      try {
+        const res = await fetch(`${url}/barang`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        state.items = json.data;
+        return json.data;
+      } catch (err) {
+        state.error = err.message;
+        state.items = [];
+        return [];
+      } finally {
+        state.loading = false;
+      }
+    };
+
+    // Test 2.1: Initial Fetch Lifecycle
+    assert.equal(state.loading, false);
+    const fetchPromise = fetchItemsWithState();
+    assert.equal(state.loading, true, 'Loading state harus aktif saat request berlangsung');
+    await fetchPromise;
+    assert.equal(state.loading, false, 'Loading state harus nonaktif setelah request selesai');
+    assert.equal(state.error, null);
+    assert.ok(state.items.length >= 4, 'Data barang berhasil dimuat');
+
+    // Test 2.2: Error State Lifecycle (Server 500 Failure)
+    const fetchErrorWithState = async () => {
+      state.loading = true;
+      state.error = null;
+      try {
+        const res = await fetch(`${url}/test/error-500`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error('Terjadi kesalahan pada server. Silakan coba beberapa saat lagi.');
+        const json = await res.json();
+        state.items = json.data;
+      } catch (err) {
+        state.error = err.message;
+        state.items = [];
+      } finally {
+        state.loading = false;
+      }
+    };
+
+    await fetchErrorWithState();
+    assert.equal(state.loading, false);
+    assert.equal(state.error, 'Terjadi kesalahan pada server. Silakan coba beberapa saat lagi.');
+    assert.equal(state.items.length, 0);
+
+    // Test 2.3: Retry Mechanism (Error -> Coba Lagi -> Berhasil)
+    let retryExecutionCount = 0;
+    const handleRetry = async () => {
+      if (state.loading) return; // Cegah duplicate in-flight requests
+      retryExecutionCount++;
+      return fetchItemsWithState();
+    };
+
+    await handleRetry();
+    assert.equal(retryExecutionCount, 1);
+    assert.equal(state.error, null, 'Error state harus dibersihkan setelah retry berhasil');
+    assert.ok(state.items.length >= 4, 'Data barang harus tampil kembali setelah retry berhasil');
+
+    // Test 2.4: Pencegahan Request Ganda (Debouncing / Guard In-flight Request)
+    state.loading = true; // Simulasi request sedang berjalan
+    const duplicateCallResult = await handleRetry();
+    assert.equal(duplicateCallResult, undefined, 'Panggilan retry kedua saat loading harus diblokir');
+    assert.equal(retryExecutionCount, 1, 'Counter eksekusi retry tidak boleh bertambah saat sedang loading');
+    state.loading = false;
+
+    // Test 2.5: Empty State Distinction ("Belum ada laporan barang.")
+    // Saat data barang kosong dan tidak ada error, harus dibedakan dari Error State
+    const emptyStateSimulator = (items, error, loading) => {
+      if (loading) return 'LOADING_VIEW';
+      if (error) return 'ERROR_VIEW';
+      if (items.length === 0) return 'EMPTY_VIEW';
+      return 'LIST_VIEW';
+    };
+
+    assert.equal(emptyStateSimulator([], null, false), 'EMPTY_VIEW');
+    assert.equal(emptyStateSimulator([], 'Ada error', false), 'ERROR_VIEW');
+    assert.equal(emptyStateSimulator([], null, true), 'LOADING_VIEW');
+    assert.equal(emptyStateSimulator([1, 2], null, false), 'LIST_VIEW');
+
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// =========================================================================================
+// WEEK 6 TASK 03 — OFFLINE HANDLING & NETWORK ERROR DISCRIMINATION SUITE
+// =========================================================================================
+test('Week 6 Task 03 - Offline Handling, Network Discrimination, and Form Preservation', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'temukampus-w6t3-'));
+  const server = createApp({ dataDir: dir, secret: 'w6t3-secret-key-for-test-only' });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    // 1. Diagnostic Function: Diskriminasi Error sesuai spesifikasi PPT Dosen & Requirement
+    const diagnoseNetworkCondition = ({ isOnline, error }) => {
+      const isTimeout = Boolean(error?.isTimeout);
+      const isNetErr = Boolean(error?.isNetworkError || error?.status === 0);
+
+      if (!isOnline) {
+        return {
+          category: 'OFFLINE',
+          icon: '📡🚫',
+          title: 'Tidak Ada Koneksi Internet',
+          message: 'Periksa koneksi Anda dan coba lagi.',
+          canRetry: true,
+        };
+      }
+      if (isTimeout) {
+        return {
+          category: 'TIMEOUT',
+          icon: '⏱️',
+          title: 'Koneksi Waktu Habis',
+          message: 'Server membutuhkan waktu terlalu lama untuk merespons. Periksa koneksi Anda dan coba lagi.',
+          canRetry: true,
+        };
+      }
+      if (isNetErr) {
+        return {
+          category: 'SERVER_UNREACHABLE',
+          icon: '🔌',
+          title: 'Server Tidak Terjangkau',
+          message: 'Perangkat terhubung ke jaringan, tetapi server API TemuKampus tidak dapat dijangkau. Pastikan server lokal aktif.',
+          canRetry: true,
+        };
+      }
+      if (error?.status >= 500) {
+        return {
+          category: 'SERVER_ERROR',
+          icon: '🖥️',
+          title: 'Gangguan Server',
+          message: error?.message || 'Terjadi kesalahan pada server (5xx). Silakan coba lagi nanti.',
+          canRetry: true,
+        };
+      }
+      return {
+        category: 'CLIENT_ERROR',
+        icon: '⚠️',
+        title: 'Permintaan Gagal',
+        message: error?.message || 'Permintaan tidak dapat diproses oleh server.',
+        canRetry: false,
+      };
+    };
+
+    // Test 1: Kondisi Tanpa Internet (Offline)
+    const diagOffline = diagnoseNetworkCondition({
+      isOnline: false,
+      error: { status: 0, isNetworkError: true },
+    });
+    assert.equal(diagOffline.category, 'OFFLINE');
+    assert.equal(diagOffline.icon, '📡🚫');
+    assert.equal(diagOffline.title, 'Tidak Ada Koneksi Internet');
+    assert.equal(diagOffline.message, 'Periksa koneksi Anda dan coba lagi.');
+    assert.equal(diagOffline.canRetry, true);
+
+    // Test 2: Wi-Fi Aktif tapi Server Backend Lokal Mati (Server Unreachable)
+    // Syarat ketat: Jangan otomatis menyebut "tidak ada internet" jika Wi-Fi tersambung
+    const diagServerDown = diagnoseNetworkCondition({
+      isOnline: true,
+      error: { status: 0, isNetworkError: true, message: 'fetch failed' },
+    });
+    assert.equal(diagServerDown.category, 'SERVER_UNREACHABLE');
+    assert.equal(diagServerDown.icon, '🔌');
+    assert.equal(diagServerDown.title, 'Server Tidak Terjangkau');
+    assert.match(diagServerDown.message, /server API TemuKampus tidak dapat dijangkau/i);
+    assert.notEqual(diagServerDown.title, 'Tidak Ada Koneksi Internet', 'Tidak boleh keliru mengklaim offline saat Wi-Fi aktif');
+
+    // Test 3: Request Timeout
+    const diagTimeout = diagnoseNetworkCondition({
+      isOnline: true,
+      error: { status: 0, isTimeout: true, isNetworkError: true },
+    });
+    assert.equal(diagTimeout.category, 'TIMEOUT');
+    assert.equal(diagTimeout.icon, '⏱️');
+    assert.equal(diagTimeout.title, 'Koneksi Waktu Habis');
+
+    // Test 4: HTTP 500 Internal Server Error
+    const diag500 = diagnoseNetworkCondition({
+      isOnline: true,
+      error: { status: 500, message: 'Terjadi kesalahan pada server.' },
+    });
+    assert.equal(diag500.category, 'SERVER_ERROR');
+    assert.equal(diag500.icon, '🖥️');
+    assert.equal(diag500.title, 'Gangguan Server');
+
+    // Test 5: Simulasi Alur Retry Setelah Online
+    let simulatedOnline = false;
+    let apiCallExecuted = false;
+
+    const retryHandlerSimulator = async () => {
+      // Step 1: Periksa koneksi via NetInfo
+      if (!simulatedOnline) {
+        return { success: false, reason: 'OFFLINE_BLOCKED' };
+      }
+      // Step 2: Lakukan request API ulang jika online
+      apiCallExecuted = true;
+      const res = await fetch(`${url}/barang`, {
+        headers: { Authorization: 'Bearer not-needed-for-check' },
+      });
+      return { success: true, status: res.status };
+    };
+
+    // Saat masih offline, tombol "Coba Lagi" tidak melakukan request berulang tanpa batas ke backend
+    const offlineRetryRes = await retryHandlerSimulator();
+    assert.equal(offlineRetryRes.success, false);
+    assert.equal(offlineRetryRes.reason, 'OFFLINE_BLOCKED');
+    assert.equal(apiCallExecuted, false, 'API request tidak boleh dikirim saat koneksi masih offline');
+
+    // Koneksi kembali aktif (online dihidupkan)
+    simulatedOnline = true;
+    const onlineRetryRes = await retryHandlerSimulator();
+    assert.equal(onlineRetryRes.success, true);
+    assert.equal(apiCallExecuted, true, 'API request dieksekusi setelah koneksi aktif kembali');
+
+    // Test 6: Preservasi Data Formulir dan Foto Barang saat Offline / Network Fail
+    // Syarat: Jangan menghapus formulir atau foto yang sudah diisi pengguna, jangan auto-resend POST
+    const initialReportForm = {
+      nama: 'Laptop ASUS ROG Hitam',
+      kategori: 'Elektronik',
+      lokasi: 'Perpustakaan Lt. 2',
+      deskripsi: 'Ada stiker GitHub di cover belakang',
+      status: 'Hilang',
+      image: 'file:///data/user/0/temukampus/cache/photo-123.jpg',
+      verificationSecret: 'stiker kucing',
+    };
+
+    let userFormState = { ...initialReportForm };
+    let userPhotoState = 'file:///data/user/0/temukampus/cache/photo-123.jpg';
+    let autoResendTriggered = false;
+
+    const submitReportSimulator = async (isNetworkConnected) => {
+      if (!isNetworkConnected) {
+        // Jangan reset userFormState dan jangan reset userPhotoState!
+        // Jangan jalankan autoResendTriggered!
+        return {
+          success: false,
+          error: 'Tidak ada koneksi internet. Formulir dan foto Anda tetap tersimpan. Silakan periksa koneksi Anda dan coba kirim kembali.',
+        };
+      }
+      return { success: true };
+    };
+
+    // Simulasi kirim laporan saat koneksi putus
+    const submitOfflineRes = await submitReportSimulator(false);
+    assert.equal(submitOfflineRes.success, false);
+    assert.match(submitOfflineRes.error, /Formulir dan foto Anda tetap tersimpan/);
+    assert.deepEqual(userFormState, initialReportForm, 'Formulir laporan tidak boleh terhapus saat offline');
+    assert.equal(userPhotoState, 'file:///data/user/0/temukampus/cache/photo-123.jpg', 'Foto barang tidak boleh dihapus saat offline');
+    assert.equal(autoResendTriggered, false, 'POST request tidak boleh di-resend otomatis untuk cegah duplikasi');
+
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
 
 
 

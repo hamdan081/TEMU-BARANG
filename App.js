@@ -13,6 +13,7 @@ import {
   Text,TextInput,useWindowDimensions,View
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import NetInfo from '@react-native-community/netinfo';
 import Header from './components/Header';
 import SearchBar from './components/SearchBar';
 import ActionMenu from './components/ActionMenu';
@@ -27,8 +28,9 @@ import {clearSession,getToken,saveSession,savePreference,getPreference} from './
 const primary='#1565C0';
 const blankForm={nama:'',kategori:'Elektronik',lokasi:'',deskripsi:'',status:'Hilang',image:'',verificationSecret:''};
 
-function UIButton({title,onPress,secondary=false,disabled=false,danger=false,style}){
- return <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={title}
+function UIButton({title,onPress,secondary=false,disabled=false,danger=false,style,accessibilityLabel,accessibilityHint}){
+ return <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={accessibilityLabel || title}
+  accessibilityHint={accessibilityHint}
   accessibilityState={{disabled}} style={[styles.button,secondary&&styles.outline,danger&&styles.danger,disabled&&styles.disabled,style]}>
   <Text style={[styles.buttonText,secondary&&styles.outlineText]}>{title}</Text>
  </Pressable>;
@@ -53,6 +55,71 @@ function Choice({label,selected,onPress}){
  return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{selected}} style={[styles.choice,selected&&styles.choiceOn]}><Text style={[styles.choiceText,selected&&styles.choiceTextOn]}>{label}</Text></Pressable>;
 }
 
+// Week 6 Task 02: Loading State dengan ActivityIndicator & teks "Memuat data barang..."
+function LoadingStateView({message='Memuat data barang...'}){
+ return <View style={styles.stateContainer} accessibilityRole="progressbar" accessibilityLabel={message}>
+  <ActivityIndicator size="large" color={primary}/>
+  <Text style={styles.stateText}>{message}</Text>
+ </View>;
+}
+
+// Week 6 Task 02 & Task 03: Error State & Offline State terpadu dengan Tombol Coba Lagi
+function ErrorStateView({error,onRetry,retrying=false,isOffline=false}){
+ const isTimeout = Boolean(error?.isTimeout);
+ const isNetErr = Boolean(error?.isNetworkError || error?.status === 0);
+
+ let title = 'Gagal Mengambil Data';
+ let msg = error?.message || 'Gagal mengambil data barang. Silakan coba lagi.';
+ let icon = '⚠️';
+
+ if (isOffline) {
+  icon = '📡🚫';
+  title = 'Tidak Ada Koneksi Internet';
+  msg = 'Periksa koneksi Anda dan coba lagi.';
+ } else if (isTimeout) {
+  icon = '⏱️';
+  title = 'Koneksi Waktu Habis';
+  msg = 'Server membutuhkan waktu terlalu lama untuk merespons. Periksa koneksi Anda dan coba lagi.';
+ } else if (isNetErr) {
+  icon = '🔌';
+  title = 'Server Tidak Terjangkau';
+  msg = 'Perangkat terhubung ke jaringan, tetapi server API TemuKampus tidak dapat dijangkau. Pastikan server lokal aktif.';
+ } else if (error?.status >= 500) {
+  icon = '🖥️';
+  title = 'Gangguan Server';
+  msg = error?.message || 'Terjadi kesalahan pada server (5xx). Silakan coba lagi nanti.';
+ } else if (error?.status >= 400) {
+  icon = '⚠️';
+  title = 'Permintaan Gagal';
+  msg = error?.message || 'Permintaan tidak dapat diproses oleh server.';
+ }
+
+ return <View style={styles.stateContainer} accessibilityLiveRegion="polite">
+  <Text style={styles.stateIcon}>{icon}</Text>
+  <Text style={styles.stateTitle} accessibilityRole="header">{title}</Text>
+  <Text style={styles.stateMessage}>{msg}</Text>
+  {onRetry && (
+   <UIButton
+    title={retrying ? 'Memproses...' : 'Coba Lagi'}
+    onPress={onRetry}
+    disabled={retrying}
+    accessibilityLabel="Coba Lagi"
+    accessibilityHint="Mencoba kembali mengambil data barang dari server setelah koneksi aktif"
+    style={styles.retryBtn}
+   />
+  )}
+ </View>;
+}
+
+// Week 6 Task 02: Empty State ("Belum ada laporan barang.") yang dibedakan dari Error State
+function EmptyStateView({title='Belum Ada Barang',message='Belum ada laporan barang.'}){
+ return <View style={styles.stateContainer}>
+  <Text style={styles.stateIcon}>📦</Text>
+  <Text style={styles.stateTitle} accessibilityRole="header">{title}</Text>
+  <Text style={styles.stateMessage}>{message}</Text>
+ </View>;
+}
+
 export default function App(){
  const {width}=useWindowDimensions();
  const wide=width>=760;
@@ -65,6 +132,8 @@ export default function App(){
  const [items,setItems]=useState([]);
  const [loadingItems,setLoadingItems]=useState(false);
  const [itemsError,setItemsError]=useState('');
+ const [itemsErrorObj,setItemsErrorObj]=useState(null);
+ const [isOnline,setIsOnline]=useState(true);
  const [search,setSearch]=useState('');
  const [category,setCategory]=useState('Semua');
  const [statusFilter,setStatusFilter]=useState('Semua');
@@ -75,6 +144,19 @@ export default function App(){
  const [claimAnswer,setClaimAnswer]=useState('');
  const [authForm,setAuthForm]=useState({name:'',email:'',password:'',confirm:''});
  const [compactMode,setCompactMode]=useState(false);
+
+ useEffect(() => {
+  // Week 6 Task 03: Listener status koneksi jaringan via NetInfo
+  const unsubscribe = NetInfo.addEventListener(state => {
+   const online = Boolean(state.isConnected && state.isInternetReachable !== false);
+   setIsOnline(online);
+  });
+  NetInfo.fetch().then(state => {
+   const online = Boolean(state.isConnected && state.isInternetReachable !== false);
+   setIsOnline(online);
+  }).catch(() => {});
+  return () => unsubscribe();
+ }, []);
 
  const pickFromGallery=async()=>{
   try{
@@ -148,11 +230,31 @@ export default function App(){
  },[handleUnauthorized]);
 
  const refreshItems=useCallback(async()=>{
-  setLoadingItems(true);setItemsError('');
+  setLoadingItems(true);setItemsError('');setItemsErrorObj(null);
   try {const list=await guarded(fetchBarang);setItems(list);return list;}
-  catch(e){if(e.status!==401)setItemsError(e.message||'Data barang tidak dapat dimuat.');return [];
+  catch(e){
+   if(e.status!==401){
+    setItemsError(e.message||'Gagal mengambil data barang. Silakan coba lagi.');
+    setItemsErrorObj(e);
+   }
+   return [];
   }finally{setLoadingItems(false);}
  },[guarded]);
+
+ // Week 6 Task 02 & Task 03: Retry mechanism dengan pencegahan request ganda dan pengecekan koneksi
+ const handleRetry=useCallback(async()=>{
+  if(loadingItems)return; // Cegah request ganda (TEST 08)
+  try {
+   const state = await NetInfo.fetch();
+   const online = Boolean(state.isConnected && state.isInternetReachable !== false);
+   setIsOnline(online);
+   if (!online) {
+    Alert.alert('Tidak Ada Koneksi Internet', 'Periksa koneksi Anda dan coba lagi.');
+    return;
+   }
+  } catch {}
+  await refreshItems();
+ },[loadingItems,refreshItems]);
 
  // Week 5 Task 03: Session Management (checkSession & restoreSession)
  const checkSession = useCallback(async () => {
@@ -272,7 +374,21 @@ export default function App(){
  const startReport=status=>{setForm({...blankForm,status});setSelectedImage(null);setSelectedImageBase64(null);navigate('report');};
  const changeReport=(key,value)=>setForm(previous=>({...previous,[key]:value}));
  const submitReport=async()=>{
-  if(!form.nama.trim()||!form.lokasi.trim()||!form.deskripsi.trim()||form.verificationSecret.trim().length<4){setError('Isi nama, lokasi, ciri-ciri, dan ciri rahasia minimal 4 karakter.');return;}
+  if(!form.nama.trim()||!form.lokasi.trim()||!form.deskripsi.trim()||form.verificationSecret.trim().length<4){
+   setError('Isi nama, lokasi, ciri-ciri, dan ciri rahasia minimal 4 karakter.');
+   return;
+  }
+  // Week 6 Task 03: Periksa koneksi internet sebelum mengirim laporan baru (cegah duplikasi dan kegagalan upload)
+  try {
+   const netState = await NetInfo.fetch();
+   const online = Boolean(netState.isConnected && netState.isInternetReachable !== false);
+   setIsOnline(online);
+   if (!online) {
+    setError('Tidak ada koneksi internet. Formulir dan foto Anda tetap tersimpan. Silakan periksa koneksi Anda dan coba kirim kembali.');
+    return; // Formulir dan foto tetap tersimpan, tidak di-reset, dan tidak melakukan auto-resend
+   }
+  } catch {}
+
   setBusy(true);setError('');setMessage(selectedImage||selectedImageBase64?'Mengunggah foto barang...':'Menyimpan laporan...');
   try{
    let uploadedUrl='';
@@ -284,10 +400,19 @@ export default function App(){
    const created=await guarded(()=>createBarang(payload));
    await refreshItems();setForm(blankForm);setSelectedImage(null);setSelectedImageBase64(null);setSelected(created);setScreen('detail');
    setMessage(uploadedUrl?'Laporan dan foto berhasil tersimpan pada server.':'Laporan tersimpan pada server.');
-  }catch(e){if(e.status!==401)setError(e.message||'Gagal mengirim laporan.');}finally{setBusy(false);}
+  }catch(e){
+   if(e.status!==401){
+    if(!isOnline || e.isNetworkError){
+     setError('Gagal mengirim laporan karena gangguan jaringan atau server tidak terjangkau. Formulir dan foto Anda tetap tersimpan.');
+    } else {
+     setError(e.message||'Gagal mengirim laporan.');
+    }
+   }
+  }finally{setBusy(false);}
  };
  const submitClaim=async()=>{
   if(!claimAnswer.trim()){setError('Isi ciri khusus barang untuk verifikasi.');return;}
+  if(!isOnline){setError('Tidak ada koneksi internet. Periksa koneksi Anda dan coba lagi.');return;}
   setBusy(true);setError('');setMessage('');
   try{
    const result=await guarded(()=>verifyBarang(selected.id,claimAnswer));
@@ -295,6 +420,7 @@ export default function App(){
   }catch(e){if(e.status!==401)setError(e.message);}finally{setBusy(false);}
  };
  const completeReturn=async()=>{
+  if(!isOnline){setError('Tidak ada koneksi internet. Periksa koneksi Anda dan coba lagi.');return;}
   setBusy(true);setError('');
   try{
    const item=await guarded(()=>markReturned(selected.id));
@@ -338,6 +464,11 @@ export default function App(){
  const activeTab=['home','list','report','profile'].includes(screen)?screen:screen==='detail'||screen==='verify'?'list':'home';
  return <SafeAreaView style={styles.page}><StatusBar barStyle="dark-content"/>
   <Header userName={authUser?.name}/>
+  {!isOnline && (
+   <View style={styles.offlineBanner} accessibilityRole="alert" accessibilityLiveRegion="polite">
+    <Text style={styles.offlineBannerText}>📡 Mode Offline — Tidak ada koneksi internet. Periksa koneksi Anda.</Text>
+   </View>
+  )}
   {screen==='list' ? <View style={styles.flex}>
     {cover(<>
      <Text style={styles.heading} accessibilityRole="header">Daftar Barang</Text>
@@ -348,12 +479,24 @@ export default function App(){
      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.choiceRow}>
       {['Semua',...categories].map(cat=><Choice key={cat} label={cat} selected={category===cat} onPress={()=>setCategory(cat)}/>)}
      </ScrollView>
-     <StatusMessage message={itemsError} error/>
     </>)}
-    <FlatList data={filtered} keyExtractor={item=>String(item.id)} renderItem={({item})=><ItemCard item={item} compact={compactMode} onPress={()=>selectItem(item)}/>}
-     contentContainerStyle={[styles.listContent,{maxWidth:wide?860:600,paddingHorizontal:wide?30:18}]}
-     ListEmptyComponent={<Text style={styles.muted}>{loadingItems?'Memuat data...':'Tidak ada barang yang sesuai.'}</Text>}
-     refreshing={loadingItems} onRefresh={refreshItems} />
+    {loadingItems && items.length === 0 ? (
+     cover(<LoadingStateView message="Memuat data barang..." />)
+    ) : itemsError ? (
+     cover(<ErrorStateView error={itemsErrorObj} isOffline={!isOnline} onRetry={handleRetry} retrying={loadingItems} />)
+    ) : filtered.length === 0 ? (
+     cover(
+      search.trim() || category !== 'Semua' || statusFilter !== 'Semua' ? (
+       <Text style={[styles.muted, { textAlign: 'center', marginTop: 24 }]}>Tidak ada barang yang sesuai kriteria pencarian/filter.</Text>
+      ) : (
+       <EmptyStateView title="Belum Ada Barang" message="Belum ada laporan barang." />
+      )
+     )
+    ) : (
+     <FlatList data={filtered} keyExtractor={item=>String(item.id)} renderItem={({item})=><ItemCard item={item} compact={compactMode} onPress={()=>selectItem(item)}/>}
+      contentContainerStyle={[styles.listContent,{maxWidth:wide?860:600,paddingHorizontal:wide?30:18}]}
+      refreshing={loadingItems} onRefresh={handleRetry} />
+    )}
    </View> :
    <ScrollView style={styles.flex} keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom:30}}>
     {cover(<>
@@ -361,10 +504,19 @@ export default function App(){
       <SearchBar value={search} onChangeText={setSearch}/>
       <ActionMenu onLost={()=>startReport('Hilang')} onFound={()=>startReport('Ditemukan')}/>
       <CategoryList onSelect={chooseCategory}/>
-      {loadingItems&&<ActivityIndicator color={primary}/>}
-      <StatusMessage message={itemsError} error/>
-      <LatestItems items={filtered} onOpen={selectItem} onViewAll={()=>navigate('list')}/>
-      <UIButton title="Muat ulang data barang" onPress={refreshItems} secondary disabled={loadingItems}/>
+      {loadingItems && items.length === 0 ? (
+       <LoadingStateView message="Memuat data barang..." />
+      ) : itemsError ? (
+       <ErrorStateView error={itemsErrorObj} isOffline={!isOnline} onRetry={handleRetry} retrying={loadingItems} />
+      ) : items.length === 0 ? (
+       <EmptyStateView title="Belum Ada Barang" message="Belum ada laporan barang." />
+      ) : (
+       <>
+        {loadingItems && <ActivityIndicator color={primary} style={{ marginVertical: 8 }} />}
+        <LatestItems items={filtered} onOpen={selectItem} onViewAll={()=>navigate('list')}/>
+       </>
+      )}
+      <UIButton title={loadingItems ? "Memuat..." : "Muat ulang data barang"} onPress={handleRetry} secondary disabled={loadingItems} accessibilityLabel="Muat ulang data barang"/>
      </>}
      {screen==='report'&&<>
       <Text style={styles.heading} accessibilityRole="header">Lapor Barang</Text><Text style={styles.muted}>Isi informasi dengan jelas untuk membantu proses pencarian.</Text>
@@ -475,5 +627,13 @@ const styles=StyleSheet.create({
  previewBtnDelete:{backgroundColor:'#FEF2F2',borderWidth:1,borderColor:'#FECACA'},
  previewBtnDeleteText:{color:'#DC2626',fontWeight:'700',fontSize:13},
  detailImageContainer:{width:'100%',borderRadius:14,overflow:'hidden',marginBottom:14,borderWidth:1,borderColor:'#CBD5E1',backgroundColor:'#F1F5F9'},
- detailImage:{width:'100%',height:220,backgroundColor:'#F1F5F9'}
+ detailImage:{width:'100%',height:220,backgroundColor:'#F1F5F9'},
+ offlineBanner:{backgroundColor:'#B91C1C',paddingVertical:9,paddingHorizontal:16,alignItems:'center',justifyContent:'center',width:'100%'},
+ offlineBannerText:{color:'#FFFFFF',fontSize:13,fontWeight:'700',textAlign:'center'},
+ stateContainer:{alignItems:'center',justifyContent:'center',paddingVertical:32,paddingHorizontal:20,backgroundColor:'#FFFFFF',borderRadius:16,borderWidth:1,borderColor:'#E2E8F0',marginVertical:14,alignSelf:'stretch'},
+ stateIcon:{fontSize:44,marginBottom:10,textAlign:'center'},
+ stateTitle:{fontSize:18,fontWeight:'800',color:'#14213A',marginBottom:6,textAlign:'center'},
+ stateMessage:{fontSize:14,color:'#526580',textAlign:'center',lineHeight:21,marginBottom:16,maxWidth:420},
+ stateText:{fontSize:14,color:'#526580',fontWeight:'600',marginTop:10,textAlign:'center'},
+ retryBtn:{minWidth:140,marginTop:4}
 });
