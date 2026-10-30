@@ -8,7 +8,7 @@
  */
 import React,{useCallback,useEffect,useMemo,useState} from 'react';
 import {
-  ActivityIndicator,Alert,FlatList,Image,KeyboardAvoidingView,Platform,
+  ActivityIndicator,Alert,FlatList,Image,KeyboardAvoidingView,Modal,Platform,
   Pressable,SafeAreaView,ScrollView,StatusBar,StyleSheet,
   Text,TextInput,useWindowDimensions,View
 } from 'react-native';
@@ -21,9 +21,10 @@ import CategoryList from './components/CategoryList';
 import LatestItems from './components/LatestItems';
 import BottomNav from './components/BottomNav';
 import ItemCard from './components/ItemCard';
+import SensorScreen from './components/sensors/SensorScreen';
 import {categories} from './models/Barang';
-import {API_BASE_URL,ApiError,registerUser,loginWithAPI,getProfile,logoutAPI,fetchBarang,createBarang,verifyBarang,markReturned,uploadPhoto,resolveImageUrl,refreshAccessToken} from './services/api';
-import {clearSession,getToken,saveSession,savePreference,getPreference} from './storage/session';
+import {API_BASE_URL,ApiError,registerUser,loginWithAPI,getProfile,logoutAPI,fetchBarang,createBarang,verifyBarang,markReturned,uploadPhoto,resolveImageUrl,refreshAccessToken,setApiBaseUrl,getApiBaseUrl,getAutoDetectedHost} from './services/api';
+import {clearSession,getToken,saveSession,savePreference,getPreference,saveApiUrl,getSavedApiUrl} from './storage/session';
 
 const primary='#1565C0';
 const blankForm={nama:'',kategori:'Elektronik',lokasi:'',deskripsi:'',status:'Hilang',image:'',verificationSecret:''};
@@ -144,6 +145,10 @@ export default function App(){
  const [claimAnswer,setClaimAnswer]=useState('');
  const [authForm,setAuthForm]=useState({name:'',email:'',password:'',confirm:''});
  const [compactMode,setCompactMode]=useState(false);
+ const [showSettings,setShowSettings]=useState(false);
+ const [customApiUrl,setCustomApiUrl]=useState(getApiBaseUrl()||'');
+ const [testingConnection,setTestingConnection]=useState(false);
+ const [testStatus,setTestStatus]=useState('');
 
  useEffect(() => {
   // Week 6 Task 03: Listener status koneksi jaringan via NetInfo
@@ -275,6 +280,14 @@ export default function App(){
 
  const restoreSession = useCallback(async () => {
   try {
+   const autoHost = getAutoDetectedHost();
+   const autoUrl = autoHost ? `http://${autoHost}:4000` : null;
+   const savedUrl = await getSavedApiUrl();
+   const targetUrl = autoUrl || savedUrl || getApiBaseUrl();
+   if (targetUrl) {
+    setApiBaseUrl(targetUrl);
+    setCustomApiUrl(targetUrl);
+   }
    const preferences = await getPreference();
    setCompactMode(Boolean(preferences.compactMode));
    const validUser = await checkSession();
@@ -301,6 +314,39 @@ export default function App(){
  useEffect(()=>{if(authenticated)refreshItems();},[authenticated,refreshItems]);
 
  const changeAuth=(key,value)=>{setAuthForm(current=>({...current,[key]:value}));setError('');};
+ const handleSaveApiUrl=async()=>{
+  const trimmed=customApiUrl.trim().replace(/\/$/,'');
+  if(!trimmed){
+   Alert.alert('URL Kosong','Masukkan URL server API (contoh: http://192.168.31.52:4000)');
+   return;
+  }
+  setApiBaseUrl(trimmed);
+  await saveApiUrl(trimmed);
+  setShowSettings(false);
+  setError('');
+  setMessage('Alamat server API berhasil diperbarui.');
+ };
+ const handleTestConnection=async()=>{
+  const target=(customApiUrl||'').trim().replace(/\/$/,'');
+  if(!target){setTestStatus('❌ Masukkan URL server terlebih dahulu.');return;}
+  setTestingConnection(true);
+  setTestStatus('⏳ Menguji koneksi...');
+  try{
+   const controller=new AbortController();
+   const timer=setTimeout(()=>controller.abort(),4000);
+   const res=await fetch(`${target}/barang`,{signal:controller.signal});
+   clearTimeout(timer);
+   if(res.status===401||res.status===200||res.ok){
+    setTestStatus('✅ Berhasil terhubung ke server TemuKampus!');
+   }else{
+    setTestStatus(`⚠️ Server merespons (HTTP ${res.status})`);
+   }
+  }catch(err){
+   setTestStatus('❌ Gagal terhubung. Pastikan laptop & HP di Wi-Fi yang sama dan server aktif.');
+  }finally{
+   setTestingConnection(false);
+  }
+ };
  const doRegister=async()=>{
   const {name,email,password,confirm}=authForm;
   if(!name.trim()||!email.trim()||!password){setError('Nama, email, dan password wajib diisi.');return;}
@@ -442,6 +488,9 @@ export default function App(){
    <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':undefined}>
     <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled">
      <View style={[styles.authBox,{maxWidth:wide?520:460}]}>
+      <Pressable onPress={()=>{setTestStatus('');setShowSettings(true);}} style={styles.settingsBtn} accessibilityRole="button" accessibilityLabel="Pengaturan Alamat Server API">
+       <Text style={styles.settingsBtnIcon}>⚙️</Text>
+      </Pressable>
       <View style={styles.logo}><Text style={styles.logoIcon}>⌕</Text></View>
       <Text style={styles.appTitle}>TEMUKAMPUS</Text>
       <Text style={styles.authSubtitle}>{registering?'Buat akun baru':'Masuk untuk mencari dan melaporkan barang di kampus'}</Text>
@@ -459,9 +508,45 @@ export default function App(){
      </View>
     </ScrollView>
    </KeyboardAvoidingView>
+   <Modal visible={showSettings} transparent animationType="slide" onRequestClose={()=>setShowSettings(false)}>
+    <View style={styles.modalOverlay}>
+     <View style={[styles.modalCard,{maxWidth:wide?520:420}]}>
+      <View style={styles.modalHeader}>
+       <Text style={styles.modalTitle}>⚙️ Pengaturan Server API</Text>
+       <Pressable onPress={()=>setShowSettings(false)} style={styles.modalCloseBtn}>
+        <Text style={styles.modalCloseText}>✕</Text>
+       </Pressable>
+      </View>
+      <Text style={styles.modalDesc}>
+       Ganti alamat IP server backend jika HP dan laptop berpindah Wi-Fi:
+      </Text>
+      <TextInput
+       value={customApiUrl}
+       onChangeText={setCustomApiUrl}
+       placeholder="http://192.168.31.52:4000"
+       autoCapitalize="none"
+       autoCorrect={false}
+       keyboardType="url"
+       style={styles.modalInput}
+      />
+      <Pressable onPress={()=>setCustomApiUrl('http://192.168.31.52:4000')} style={styles.quickIpBtn}>
+       <Text style={styles.quickIpText}>⚡ Gunakan IP Wi-Fi Saat Ini (192.168.31.52)</Text>
+      </Pressable>
+      {!!testStatus && (
+       <Text style={[styles.testStatusText, testStatus.includes('✅')?styles.testSuccess:styles.testFail]}>
+        {testStatus}
+       </Text>
+      )}
+      <View style={styles.modalActions}>
+       <UIButton title={testingConnection?'Menguji...':'Tes Koneksi'} secondary disabled={testingConnection} onPress={handleTestConnection} style={{flex:1}}/>
+       <UIButton title="Simpan" onPress={handleSaveApiUrl} style={{flex:1}}/>
+      </View>
+     </View>
+    </View>
+   </Modal>
   </SafeAreaView>;
  }
- const activeTab=['home','list','report','profile'].includes(screen)?screen:screen==='detail'||screen==='verify'?'list':'home';
+ const activeTab=['home','list','report','sensor','profile'].includes(screen)?screen:screen==='detail'||screen==='verify'?'list':'home';
  return <SafeAreaView style={styles.page}><StatusBar barStyle="dark-content"/>
   <Header userName={authUser?.name}/>
   {!isOnline && (
@@ -503,6 +588,14 @@ export default function App(){
      {screen==='home'&&<>
       <SearchBar value={search} onChangeText={setSearch}/>
       <ActionMenu onLost={()=>startReport('Hilang')} onFound={()=>startReport('Ditemukan')}/>
+      <Pressable onPress={()=>navigate('sensor')} accessibilityRole="button" accessibilityLabel="Fitur Keamanan Pengaman Meja" style={styles.guardBanner}>
+       <Text style={{fontSize:24,marginRight:12}}>🛡️</Text>
+       <View style={{flex:1}}>
+        <Text style={styles.guardBannerTitle}>Fitur Keamanan: Pengaman Meja</Text>
+        <Text style={styles.guardBannerDesc}>Tinggalkan laptop di perpus/kantin dengan tenang lewat alarm sensor gerak</Text>
+       </View>
+       <Text style={styles.guardBannerArrow}>›</Text>
+      </Pressable>
       <CategoryList onSelect={chooseCategory}/>
       {loadingItems && items.length === 0 ? (
        <LoadingStateView message="Memuat data barang..." />
@@ -587,6 +680,7 @@ export default function App(){
       <UIButton title={busy?'Memverifikasi...':'Kirim Verifikasi'} disabled={busy} onPress={submitClaim}/>
       <Text style={styles.hint}>Untuk penggunaan nyata diperlukan pemeriksaan oleh petugas kampus sebelum penyerahan barang.</Text>
      </>}
+     {screen==='sensor'&&<SensorScreen onReportLost={()=>startReport('Hilang')}/>}
      {screen==='profile'&&<>
       <Text style={styles.heading} accessibilityRole="header">Profil</Text>
       <View style={styles.profile}><Text style={styles.detailName}>{authUser.name}</Text><Text style={styles.muted}>{authUser.email}</Text></View>
@@ -635,5 +729,25 @@ const styles=StyleSheet.create({
  stateTitle:{fontSize:18,fontWeight:'800',color:'#14213A',marginBottom:6,textAlign:'center'},
  stateMessage:{fontSize:14,color:'#526580',textAlign:'center',lineHeight:21,marginBottom:16,maxWidth:420},
  stateText:{fontSize:14,color:'#526580',fontWeight:'600',marginTop:10,textAlign:'center'},
- retryBtn:{minWidth:140,marginTop:4}
+ retryBtn:{minWidth:140,marginTop:4},
+ guardBanner:{flexDirection:'row',alignItems:'center',backgroundColor:'#ECFDF5',borderWidth:1,borderColor:'#A7F3D0',borderRadius:14,padding:13,marginVertical:10},
+ guardBannerTitle:{fontSize:14,fontWeight:'800',color:'#065F46'},
+ guardBannerDesc:{fontSize:11,color:'#047857',lineHeight:16,marginTop:2},
+ guardBannerArrow:{fontSize:20,fontWeight:'800',color:'#059669',marginLeft:8},
+ settingsBtn:{position:'absolute',top:16,right:16,zIndex:10,width:40,height:40,borderRadius:20,backgroundColor:'#EFF6FF',borderWidth:1,borderColor:'#BFDBFE',alignItems:'center',justifyContent:'center'},
+ settingsBtnIcon:{fontSize:20},
+ modalOverlay:{flex:1,backgroundColor:'rgba(0,0,0,0.5)',justifyContent:'center',alignItems:'center',padding:20},
+ modalCard:{width:'100%',backgroundColor:'#FFFFFF',borderRadius:18,padding:20,shadowColor:'#000',shadowOffset:{width:0,height:2},shadowOpacity:0.25,shadowRadius:4,elevation:5},
+ modalHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:10},
+ modalTitle:{fontSize:17,fontWeight:'800',color:'#14213A'},
+ modalCloseBtn:{padding:6},
+ modalCloseText:{fontSize:18,color:'#64748B',fontWeight:'700'},
+ modalDesc:{fontSize:13,color:'#475569',marginBottom:12,lineHeight:19},
+ modalInput:{borderWidth:1,borderColor:'#CBD5E1',backgroundColor:'#F8FAFC',borderRadius:10,paddingHorizontal:12,paddingVertical:10,fontSize:14,color:'#0F172A',marginBottom:8},
+ quickIpBtn:{backgroundColor:'#EFF6FF',borderWidth:1,borderColor:'#BFDBFE',borderRadius:8,paddingVertical:7,paddingHorizontal:10,marginBottom:12,alignItems:'center'},
+ quickIpText:{fontSize:12,fontWeight:'700',color:'#1D4ED8'},
+ testStatusText:{fontSize:12,fontWeight:'700',padding:8,borderRadius:8,marginBottom:10,textAlign:'center'},
+ testSuccess:{backgroundColor:'#DCFCE7',color:'#15803D'},
+ testFail:{backgroundColor:'#FEE2E2',color:'#B91C1C'},
+ modalActions:{flexDirection:'row',gap:10,marginTop:6}
 });
