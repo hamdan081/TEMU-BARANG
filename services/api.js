@@ -1,9 +1,50 @@
+import {NativeModules, Platform} from 'react-native';
+import Constants from 'expo-constants';
 import {mapBarang} from '../models/Barang';
 import {getToken, getRefreshToken, saveTokens, clearSession} from '../storage/session';
 
 // Configure EXPO_PUBLIC_API_BASE_URL in .env (e.g., http://192.168.1.5:4000)
 // The API is real and local for classroom use; no fabricated tokens or dummy API successes.
-export const API_BASE_URL=(process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/,'');
+export function getAutoDetectedHost() {
+  try {
+    const hostUri = Constants?.expoConfig?.hostUri ||
+      Constants?.manifest2?.extra?.expoGo?.debuggerHost ||
+      Constants?.manifest?.debuggerHost;
+    if (hostUri) {
+      const host = hostUri.split(':')[0];
+      if (host && host !== 'localhost' && host !== '127.0.0.1') return host;
+    }
+    const scriptURL = NativeModules?.SourceCode?.scriptURL;
+    if (scriptURL) {
+      const match = scriptURL.match(/^https?:\/\/([^\/:]+)/);
+      if (match && match[1] && match[1] !== 'localhost' && match[1] !== '127.0.0.1') return match[1];
+    }
+  } catch {}
+  return null;
+}
+
+export function resolveDefaultApiUrl() {
+  const autoHost = getAutoDetectedHost();
+  if (autoHost) return 'http://' + autoHost + ':4000';
+  const envUrl = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+  if (envUrl) return envUrl;
+  return 'http://localhost:4000';
+}
+
+export let API_BASE_URL = resolveDefaultApiUrl();
+
+export function setApiBaseUrl(url) {
+  API_BASE_URL = (url || '').trim().replace(/\/$/, '');
+  return API_BASE_URL;
+}
+
+export function getApiBaseUrl() {
+  if (!API_BASE_URL || API_BASE_URL.includes('localhost') || API_BASE_URL.includes('127.0.0.1')) {
+    const auto = resolveDefaultApiUrl();
+    if (auto && !auto.includes('localhost')) API_BASE_URL = auto;
+  }
+  return API_BASE_URL;
+}
 const timeout=15000;
 // Week 6 Task 01 — Handle API Error: Struktur ApiError terpadu untuk HTTP 2xx/4xx/5xx dan Network Error
 export class ApiError extends Error {
@@ -93,7 +134,7 @@ export async function refreshAccessToken() {
 
       let response;
       try {
-        response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        response = await fetch(`${getApiBaseUrl()}/auth/refresh`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -145,7 +186,8 @@ export async function refreshAccessToken() {
 }
 
 export async function request(path,{method='GET',body,authenticated=false,_retry=false}={}){
-  if(!API_BASE_URL)throw new ApiError('Alamat API belum diatur. Isi EXPO_PUBLIC_API_BASE_URL pada file .env.', 0, {
+  const baseUrl = getApiBaseUrl();
+  if(!baseUrl)throw new ApiError('Alamat API belum diatur. Pastikan server backend aktif.', 0, {
     type: 'CLIENT_ERROR',
     isNetworkError: false,
   });
@@ -159,7 +201,7 @@ export async function request(path,{method='GET',body,authenticated=false,_retry
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),timeout);
   try{
-    const response=await fetch(`${API_BASE_URL}${path}`,{method,headers,body:body!==undefined?JSON.stringify(body):undefined,signal:controller.signal});
+    const response=await fetch(`${baseUrl}${path}`,{method,headers,body:body!==undefined?JSON.stringify(body):undefined,signal:controller.signal});
     
     // Parse response secara aman (mendukung JSON, teks/HTML error, atau body kosong)
     let payload = null;
@@ -211,7 +253,7 @@ export async function request(path,{method='GET',body,authenticated=false,_retry
       });
     }
     // Network Error (koneksi terputus, DNS gagal, host tidak dapat dijangkau)
-    throw new ApiError('Tidak dapat terhubung ke server. Periksa koneksi internet atau Wi-Fi Anda.', 0, {
+    throw new ApiError(`Tidak dapat terhubung ke server (${baseUrl}). Pastikan server backend ('npm run dev') aktif di laptop.`, 0, {
       type: 'NETWORK_ERROR',
       isNetworkError: true,
       isRetryable: true,

@@ -5,6 +5,7 @@ const TOKEN_KEY = 'access_token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
 const PROFILE_KEY = 'temukampus_profile';
 const PREF_KEY = 'temukampus_preferences';
+const API_URL_KEY = 'temukampus_custom_api_url';
 
 /**
  * Week 5 Task 01 & Task 03:
@@ -50,4 +51,13 @@ export async function savePreference(preference) {
 export async function getPreference() {
   const result = await AsyncStorage.getItem(PREF_KEY);
   return result ? JSON.parse(result) : { compactMode: false };
+}
+
+export async function saveApiUrl(url) {
+  if (url) await AsyncStorage.setItem(API_URL_KEY, url.trim().replace(/\/$/, ''));
+  else await AsyncStorage.removeItem(API_URL_KEY);
+}
+
+export async function getSavedApiUrl() {
+  return AsyncStorage.getItem(API_URL_KEY);
 }
