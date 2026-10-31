@@ -1,11 +1,10 @@
-/** Week 7 Task 01: Status & Kontrol Pengaman Meja
- * Membaca nilai accelerometer X, Y, Z secara real-time dan terhubung ke Expo Sensors.
+/** Week 7 Task 02: Status & Kontrol Pengaman Meja dengan Visualisasi Real-Time
+ * Menghubungkan hook accelerometer ke SensorDashboard untuk memantau stabilitas meja.
  */
 import React from 'react';
 import {Platform,Pressable,StyleSheet,Text,View} from 'react-native';
-import useAccelerometer, {GRAVITY_MS2} from '../../hooks/useAccelerometer';
-
-const toMS2=val=>val!==undefined&&val!==null?(val*GRAVITY_MS2).toFixed(2):'—';
+import useAccelerometer from '../../hooks/useAccelerometer';
+import SensorDashboard from './SensorDashboard';
 
 export default function SensorScreen({onReportLost}){
  const {active,permission,error,sample,start,stop}=useAccelerometer();
@@ -43,25 +42,6 @@ export default function SensorScreen({onReportLost}){
    </Pressable>
 
    {!!error&&<Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text>}
-
-   {/* Pembacaan accelerometer Task 01 */}
-   <View style={styles.readingsRow}>
-    <View style={styles.readingCard}>
-     <Text style={styles.readingLabel}>X</Text>
-     <Text style={styles.readingVal}>{sample?toMS2(sample.x):'—'}</Text>
-     <Text style={styles.readingUnit}>m/s²</Text>
-    </View>
-    <View style={styles.readingCard}>
-     <Text style={styles.readingLabel}>Y</Text>
-     <Text style={styles.readingVal}>{sample?toMS2(sample.y):'—'}</Text>
-     <Text style={styles.readingUnit}>m/s²</Text>
-    </View>
-    <View style={styles.readingCard}>
-     <Text style={styles.readingLabel}>Z</Text>
-     <Text style={styles.readingVal}>{sample?toMS2(sample.z):'—'}</Text>
-     <Text style={styles.readingUnit}>m/s²</Text>
-    </View>
-   </View>
    
    <View style={styles.tipBox}>
     <Text style={styles.tipTitle}>💡 Tips Penggunaan di Kampus:</Text>
@@ -74,6 +54,9 @@ export default function SensorScreen({onReportLost}){
 
    {Platform.OS==='web'&&<Text style={styles.note}>Browser dapat membatasi sensor atau membutuhkan HTTPS dan izin gerakan.</Text>}
   </View>
+
+  {/* Dashboard visualisasi real-time stabilitas meja (Task 02) */}
+  <SensorDashboard sample={sample} active={active}/>
  </View>;
 }
 
@@ -96,11 +79,6 @@ const styles=StyleSheet.create({
  actionStop:{backgroundColor:'#B91C1C'},
  actionText:{color:'white',fontWeight:'800',fontSize:15},
  error:{color:'#9F1239',backgroundColor:'#FFF1F2',padding:11,borderRadius:10,lineHeight:20},
- readingsRow:{flexDirection:'row',gap:8,marginTop:4},
- readingCard:{flex:1,backgroundColor:'#F8FAFC',borderRadius:10,borderWidth:1,borderColor:'#E2E8F0',alignItems:'center',paddingVertical:8},
- readingLabel:{fontSize:12,fontWeight:'800',color:'#64748B'},
- readingVal:{fontSize:16,fontWeight:'800',color:'#1E293B',marginVertical:2},
- readingUnit:{fontSize:10,color:'#94A3B8'},
  tipBox:{backgroundColor:'#F8FAFC',borderRadius:10,padding:10,borderWidth:1,borderColor:'#E2E8F0'},
  tipTitle:{fontSize:12,fontWeight:'800',color:'#1E293B',marginBottom:3},
  tipText:{fontSize:11,lineHeight:18,color:'#475569'}
