@@ -1,0 +1,844 @@
+/**
+ * TemuKampus — project terpadu Mobile Programming Week 1–8.
+ * Week 1–3: perancangan aplikasi, React Native UI, autentikasi dan keamanan sesi.
+ * Week 4–5: Barang DTO, REST API, JWT, protected endpoint, refresh token dan logout.
+ * Week 6: error state, loading, retry dan penanganan koneksi offline.
+ * Week 7: sensor gerak untuk fitur keamanan meja.
+ * Week 8: GET, POST, PATCH, loading, error handling dan refresh pada laporan barang.
+ */
+import React,{useCallback,useEffect,useMemo,useState} from 'react';
+import {
+  ActivityIndicator,Alert,FlatList,Image,KeyboardAvoidingView,Modal,Platform,
+  Pressable,SafeAreaView,ScrollView,StatusBar,StyleSheet,
+  Text,TextInput,useWindowDimensions,View
+} from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import NetInfo from '@react-native-community/netinfo';
+import Header from './components/Header';
+import SearchBar from './components/SearchBar';
+import ActionMenu from './components/ActionMenu';
+import CategoryList from './components/CategoryList';
+import LatestItems from './components/LatestItems';
+import BottomNav from './components/BottomNav';
+import ItemCard from './components/ItemCard';
+import SensorScreen from './components/sensors/SensorScreen';
+import {categories,handlingStatuses,reportTypes} from './models/Barang';
+import {API_BASE_URL,ApiError,registerUser,loginWithAPI,getProfile,logoutAPI,fetchBarang,createBarang,verifyBarang,markReturned,uploadPhoto,resolveImageUrl,refreshAccessToken,setApiBaseUrl,getApiBaseUrl,getAutoDetectedHost} from './services/api';
+import {clearSession,getToken,saveSession,savePreference,getPreference,saveApiUrl,getSavedApiUrl} from './storage/session';
+
+const primary='#1565C0';
+const blankForm={nama:'',kategori:'Elektronik',lokasi:'',deskripsi:'',jenisLaporan:'Hilang',image:'',verificationSecret:''};
+
+function UIButton({title,onPress,secondary=false,disabled=false,danger=false,style,accessibilityLabel,accessibilityHint}){
+ return <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={accessibilityLabel || title}
+  accessibilityHint={accessibilityHint}
+  accessibilityState={{disabled}} style={[styles.button,secondary&&styles.outline,danger&&styles.danger,disabled&&styles.disabled,style]}>
+  <Text style={[styles.buttonText,secondary&&styles.outlineText]}>{title}</Text>
+ </Pressable>;
+}
+function Field({label,value,onChangeText,placeholder,secret=false,multiline=false,autoCapitalize='sentences',keyboardType='default'}){
+ const [visible,setVisible]=useState(false);
+ return <View style={styles.field}>
+  <Text style={styles.label}>{label}</Text>
+  <View style={styles.inputRow}>
+   <TextInput accessibilityLabel={label} placeholder={placeholder||label} placeholderTextColor="#7C8798" style={[styles.input,multiline&&styles.multiline]}
+    value={value} onChangeText={onChangeText} secureTextEntry={secret&&!visible} multiline={multiline}
+    autoCapitalize={autoCapitalize} keyboardType={keyboardType} autoCorrect={!secret} />
+   {secret&&<Pressable onPress={()=>setVisible(!visible)} accessibilityRole="button" accessibilityLabel={visible?`Sembunyikan ${label}`:`Tampilkan ${label}`} style={styles.eye}><Text style={styles.eyeText}>{visible?'Sembunyikan':'Lihat'}</Text></Pressable>}
+  </View>
+ </View>;
+}
+function StatusMessage({message,error=false}){
+ if(!message)return null;
+ return <Text accessibilityLiveRegion="polite" style={[styles.message,error?styles.error:styles.success]}>{message}</Text>;
+}
+function Choice({label,selected,onPress}){
+ return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{selected}} style={[styles.choice,selected&&styles.choiceOn]}><Text style={[styles.choiceText,selected&&styles.choiceTextOn]}>{label}</Text></Pressable>;
+}
+
+function getFollowUpInfo(item,currentUserId){
+ const isOwner=Number(item.ownerId)===Number(currentUserId);
+ if(isOwner&&item.status==='Menunggu Pengambilan')return {title:'Konfirmasi barang telah diterima',description:'Ciri barang sudah diverifikasi. Setelah barang benar-benar diterima, konfirmasikan pengembaliannya.',button:'Konfirmasi Pengembalian',kind:'confirm'};
+ if(isOwner&&item.status==='Belum Ditemukan')return {title:'Pantau laporan kehilangan',description:'Laporan masih aktif. Periksa informasi terbaru dan pantau jika ada laporan temuan yang cocok.',button:'Lihat Laporan',kind:'detail'};
+ if(isOwner&&item.status==='Menunggu Pemilik')return {title:'Menunggu pemilik barang',description:'Barang sudah dilaporkan ditemukan. Tunggu pemilik melakukan verifikasi ciri khusus.',button:'Lihat Laporan',kind:'detail'};
+ if(!isOwner&&item.status==='Menunggu Pemilik')return {title:'Periksa kecocokan barang temuan',description:'Jika barang ini milikmu, buka detail dan masukkan ciri khusus untuk memulai verifikasi.',button:'Periksa & Verifikasi',kind:'verify'};
+ if(!isOwner&&item.status==='Belum Ditemukan')return {title:'Cocokkan laporan kehilangan',description:'Periksa nama, foto, ciri-ciri, dan lokasi. Jika barang cocok, lanjutkan proses verifikasi.',button:'Periksa Laporan',kind:'verify'};
+ return {title:'Pengambilan sedang diproses',description:'Verifikasi sudah berhasil. Tunggu pelapor mengonfirmasi bahwa barang telah diterima.',button:'Lihat Laporan',kind:'detail'};
+}
+
+function getHandlingDescription(item){
+ switch(item.status){
+  case 'Belum Ditemukan': return 'Laporan kehilangan sudah tercatat dan masih menunggu informasi barang ditemukan.';
+  case 'Menunggu Pemilik': return 'Barang sudah dilaporkan ditemukan dan sedang menunggu pemilik mengenali ciri khususnya.';
+  case 'Menunggu Pengambilan': return 'Ciri barang sudah cocok. Pengambilan menunggu konfirmasi dari pelapor.';
+  case 'Selesai Dikembalikan': return 'Barang telah dikonfirmasi kembali kepada pemilik. Laporan selesai.';
+  default: return 'Perkembangan laporan akan diperbarui setelah ada tindakan berikutnya.';
+ }
+}
+
+// Week 6 Task 02: Loading State dengan ActivityIndicator & teks "Memuat data barang..."
+function LoadingStateView({message='Memuat data barang...'}){
+ return <View style={styles.stateContainer} accessibilityRole="progressbar" accessibilityLabel={message}>
+  <ActivityIndicator size="large" color={primary}/>
+  <Text style={styles.stateText}>{message}</Text>
+ </View>;
+}
+
+// Week 6 Task 02 & Task 03: Error State & Offline State terpadu dengan Tombol Coba Lagi
+function ErrorStateView({error,onRetry,retrying=false,isOffline=false}){
+ const isTimeout = Boolean(error?.isTimeout);
+ const isNetErr = Boolean(error?.isNetworkError || error?.status === 0);
+
+ let title = 'Gagal Mengambil Data';
+ let msg = error?.message || 'Gagal mengambil data barang. Silakan coba lagi.';
+ let icon = '⚠️';
+
+ if (isOffline) {
+  icon = '📡🚫';
+  title = 'Tidak Ada Koneksi Internet';
+  msg = 'Periksa koneksi Anda dan coba lagi.';
+ } else if (isTimeout) {
+  icon = '⏱️';
+  title = 'Koneksi Waktu Habis';
+  msg = 'Server membutuhkan waktu terlalu lama untuk merespons. Periksa koneksi Anda dan coba lagi.';
+ } else if (isNetErr) {
+  icon = '🔌';
+  title = 'Server Tidak Terjangkau';
+  msg = 'Perangkat terhubung ke jaringan, tetapi server API TemuKampus tidak dapat dijangkau. Pastikan server lokal aktif.';
+ } else if (error?.status >= 500) {
+  icon = '🖥️';
+  title = 'Gangguan Server';
+  msg = error?.message || 'Terjadi kesalahan pada server (5xx). Silakan coba lagi nanti.';
+ } else if (error?.status >= 400) {
+  icon = '⚠️';
+  title = 'Permintaan Gagal';
+  msg = error?.message || 'Permintaan tidak dapat diproses oleh server.';
+ }
+
+ return <View style={styles.stateContainer} accessibilityLiveRegion="polite">
+  <Text style={styles.stateIcon}>{icon}</Text>
+  <Text style={styles.stateTitle} accessibilityRole="header">{title}</Text>
+  <Text style={styles.stateMessage}>{msg}</Text>
+  {onRetry && (
+   <UIButton
+    title={retrying ? 'Memproses...' : 'Coba Lagi'}
+    onPress={onRetry}
+    disabled={retrying}
+    accessibilityLabel="Coba Lagi"
+    accessibilityHint="Mencoba kembali mengambil data barang dari server setelah koneksi aktif"
+    style={styles.retryBtn}
+   />
+  )}
+ </View>;
+}
+
+// Week 6 Task 02: Empty State ("Belum ada laporan barang.") yang dibedakan dari Error State
+function EmptyStateView({title='Belum Ada Barang',message='Belum ada laporan barang.'}){
+ return <View style={styles.stateContainer}>
+  <Text style={styles.stateIcon}>📦</Text>
+  <Text style={styles.stateTitle} accessibilityRole="header">{title}</Text>
+  <Text style={styles.stateMessage}>{message}</Text>
+ </View>;
+}
+
+export default function App(){
+ const {width}=useWindowDimensions();
+ const wide=width>=760;
+ const [screen,setScreen]=useState('login');
+ const [authUser,setAuthUser]=useState(null);
+ const [booting,setBooting]=useState(true);
+ const [busy,setBusy]=useState(false);
+ const [message,setMessage]=useState('');
+ const [error,setError]=useState('');
+ const [items,setItems]=useState([]);
+ const [loadingItems,setLoadingItems]=useState(false);
+ const [itemsError,setItemsError]=useState('');
+ const [itemsErrorObj,setItemsErrorObj]=useState(null);
+ const [isOnline,setIsOnline]=useState(true);
+ const [search,setSearch]=useState('');
+ const [category,setCategory]=useState('Semua');
+ const [statusFilter,setStatusFilter]=useState('Semua');
+ const [typeFilter,setTypeFilter]=useState('Semua');
+ const [selected,setSelected]=useState(null);
+ const [form,setForm]=useState(blankForm);
+ const [selectedImage,setSelectedImage]=useState(null);
+ const [selectedImageBase64,setSelectedImageBase64]=useState(null);
+ const [claimAnswer,setClaimAnswer]=useState('');
+ const [authForm,setAuthForm]=useState({name:'',email:'',password:'',confirm:''});
+ const [compactMode,setCompactMode]=useState(false);
+ const [showSettings,setShowSettings]=useState(false);
+ const [customApiUrl,setCustomApiUrl]=useState(getApiBaseUrl()||'');
+ const [testingConnection,setTestingConnection]=useState(false);
+ const [testStatus,setTestStatus]=useState('');
+
+ useEffect(() => {
+  // Week 6 Task 03: Listener status koneksi jaringan via NetInfo
+  const unsubscribe = NetInfo.addEventListener(state => {
+   const online = Boolean(state.isConnected && state.isInternetReachable !== false);
+   setIsOnline(online);
+  });
+  NetInfo.fetch().then(state => {
+   const online = Boolean(state.isConnected && state.isInternetReachable !== false);
+   setIsOnline(online);
+  }).catch(() => {});
+  return () => unsubscribe();
+ }, []);
+
+ const pickFromGallery=async()=>{
+  try{
+   const perm=await ImagePicker.requestMediaLibraryPermissionsAsync();
+   if(!perm.granted){
+    Alert.alert('Izin Galeri Ditolak','Aplikasi memerlukan izin galeri untuk memilih foto barang.');
+    return;
+   }
+   const result=await ImagePicker.launchImageLibraryAsync({
+    mediaTypes:['images'],
+    allowsEditing:true,
+    aspect:[4,3],
+    quality:0.6,
+    base64:true,
+   });
+   if(!result.canceled&&result.assets&&result.assets.length>0){
+    setSelectedImage(result.assets[0].uri);
+    setSelectedImageBase64(result.assets[0].base64||null);
+    setError('');
+   }
+  }catch(e){
+   setError('Gagal membuka galeri: '+(e.message||'Kesalahan sistem'));
+  }
+ };
+
+ const takePhoto=async()=>{
+  try{
+   const perm=await ImagePicker.requestCameraPermissionsAsync();
+   if(!perm.granted){
+    Alert.alert('Izin Kamera Ditolak','Aplikasi memerlukan izin kamera untuk mengambil foto barang.');
+    return;
+   }
+   const result=await ImagePicker.launchCameraAsync({
+    mediaTypes:['images'],
+    allowsEditing:true,
+    aspect:[4,3],
+    quality:0.6,
+    base64:true,
+   });
+   if(!result.canceled&&result.assets&&result.assets.length>0){
+    setSelectedImage(result.assets[0].uri);
+    setSelectedImageBase64(result.assets[0].base64||null);
+    setError('');
+   }
+  }catch(e){
+   setError('Gagal membuka kamera: '+(e.message||'Kesalahan sistem'));
+  }
+ };
+
+ const changePhotoChoice=()=>{
+  Alert.alert(
+   'Ganti Foto Barang',
+   'Pilih sumber foto baru:',
+   [
+    {text:'Pilih dari Galeri',onPress:pickFromGallery},
+    {text:'Ambil Foto (Kamera)',onPress:takePhoto},
+    {text:'Batal',style:'cancel'}
+   ]
+  );
+ };
+
+ const authenticated=Boolean(authUser);
+ const handleUnauthorized=useCallback(async()=>{
+  await clearSession().catch(()=>{});
+  setAuthUser(null);setItems([]);setSelected(null);setScreen('login');
+  setError('Sesi tidak valid atau sudah berakhir. Silakan login kembali.');
+ },[]);
+ const guarded=useCallback(async(promise)=>{
+  try{return await promise();}
+  catch(e){if(e.status===401)await handleUnauthorized();throw e;}
+ },[handleUnauthorized]);
+
+ // Week 8: GET /barang menggunakan async/await; state loading dan error mengendalikan respons API.
+ const refreshItems=useCallback(async()=>{
+  setLoadingItems(true);setItemsError('');setItemsErrorObj(null);
+  try {const list=await guarded(fetchBarang);setItems(list);return list;}
+  catch(e){
+   if(e.status!==401){
+    setItemsError(e.message||'Gagal mengambil data barang. Silakan coba lagi.');
+    setItemsErrorObj(e);
+   }
+   return [];
+  }finally{setLoadingItems(false);}
+ },[guarded]);
+
+ // Week 6 Task 02 & Task 03: Retry mechanism dengan pencegahan request ganda dan pengecekan koneksi
+ const handleRetry=useCallback(async()=>{
+  if(loadingItems)return; // Cegah request ganda (TEST 08)
+  try {
+   const state = await NetInfo.fetch();
+   const online = Boolean(state.isConnected && state.isInternetReachable !== false);
+   setIsOnline(online);
+   if (!online) {
+    Alert.alert('Tidak Ada Koneksi Internet', 'Periksa koneksi Anda dan coba lagi.');
+    return;
+   }
+  } catch {}
+  await refreshItems();
+ },[loadingItems,refreshItems]);
+
+ // Week 5 Task 03: Session Management (checkSession & restoreSession)
+ const checkSession = useCallback(async () => {
+  try {
+   const token = await getToken();
+   if (!token) return null;
+   // Jangan menganggap token pasti valid hanya karena tersimpan di SecureStore.
+   // Validasi token langsung ke endpoint backend GET /me.
+   const profile = await getProfile();
+   return profile?.user || null;
+  } catch (e) {
+   if (e.status === 401) {
+    await clearSession().catch(() => {});
+   }
+   return null;
+  }
+ }, []);
+
+ const restoreSession = useCallback(async () => {
+  try {
+   const autoHost = getAutoDetectedHost();
+   const autoUrl = autoHost ? `http://${autoHost}:4000` : null;
+   const savedUrl = await getSavedApiUrl();
+   const targetUrl = autoUrl || savedUrl || getApiBaseUrl();
+   if (targetUrl) {
+    setApiBaseUrl(targetUrl);
+    setCustomApiUrl(targetUrl);
+   }
+   const preferences = await getPreference();
+   setCompactMode(Boolean(preferences.compactMode));
+   const validUser = await checkSession();
+   if (validUser) {
+    setAuthUser(validUser);
+    setScreen('home');
+   } else {
+    setAuthUser(null);
+    setScreen('login');
+   }
+  } catch (e) {
+   await clearSession().catch(() => {});
+   setAuthUser(null);
+   setScreen('login');
+   setError('Tidak dapat memeriksa sesi. Hubungkan kembali ke API dan login.');
+  } finally {
+   setBooting(false);
+  }
+ }, [checkSession]);
+
+ useEffect(() => {
+  restoreSession();
+ }, [restoreSession]);
+ // Week 8: useEffect menjalankan GET daftar barang setelah sesi pengguna berhasil dipulihkan.
+ useEffect(()=>{if(authenticated)refreshItems();},[authenticated,refreshItems]);
+
+ const changeAuth=(key,value)=>{setAuthForm(current=>({...current,[key]:value}));setError('');};
+ const handleSaveApiUrl=async()=>{
+  const trimmed=customApiUrl.trim().replace(/\/$/,'');
+  if(!trimmed){
+   Alert.alert('URL Kosong','Masukkan URL server API (contoh: http://192.168.31.52:4000)');
+   return;
+  }
+  setApiBaseUrl(trimmed);
+  await saveApiUrl(trimmed);
+  setShowSettings(false);
+  setError('');
+  setMessage('Alamat server API berhasil diperbarui.');
+ };
+ const handleTestConnection=async()=>{
+  const target=(customApiUrl||'').trim().replace(/\/$/,'');
+  if(!target){setTestStatus('❌ Masukkan URL server terlebih dahulu.');return;}
+  setTestingConnection(true);
+  setTestStatus('⏳ Menguji koneksi...');
+  try{
+   const controller=new AbortController();
+   const timer=setTimeout(()=>controller.abort(),4000);
+   const res=await fetch(`${target}/barang`,{signal:controller.signal});
+   clearTimeout(timer);
+   if(res.status===401||res.status===200||res.ok){
+    setTestStatus('✅ Berhasil terhubung ke server TemuKampus!');
+   }else{
+    setTestStatus(`⚠️ Server merespons (HTTP ${res.status})`);
+   }
+  }catch(err){
+   setTestStatus('❌ Gagal terhubung. Pastikan laptop & HP di Wi-Fi yang sama dan server aktif.');
+  }finally{
+   setTestingConnection(false);
+  }
+ };
+ const doRegister=async()=>{
+  const {name,email,password,confirm}=authForm;
+  if(!name.trim()||!email.trim()||!password){setError('Nama, email, dan password wajib diisi.');return;}
+  if(!/^\S+@\S+\.\S+$/.test(email.trim())){setError('Format email tidak valid.');return;}
+  if(password.length<8){setError('Password minimal 8 karakter.');return;}
+  if(password!==confirm){setError('Konfirmasi password tidak cocok.');return;}
+  setBusy(true);setError('');
+  try{
+   await registerUser(name.trim(),email.trim().toLowerCase(),password);
+   setAuthForm({name:'',email:email.trim().toLowerCase(),password:'',confirm:''});
+   setScreen('login');setMessage('Akun berhasil dibuat. Silakan masuk.');
+  }catch(e){setError(e.message);}finally{setBusy(false);}
+ };
+ // Week 5 Task 01 & 03: Token Authentication & Refresh Token (simpan access_token & refresh_token di SecureStore)
+ const doLogin=async()=>{
+  if(!authForm.email.trim()||!authForm.password){setError('Email dan password wajib diisi.');return;}
+  setBusy(true);setError('');setMessage('');
+  try{
+   const result=await loginWithAPI(authForm.email.trim().toLowerCase(),authForm.password);
+   if(!result.access_token||!result.user)throw new Error('Server tidak memberikan token dan profil yang valid.');
+   await saveSession(result.access_token,result.user,result.refresh_token);
+   setAuthForm({name:'',email:'',password:'',confirm:''});
+   setAuthUser(result.user);setScreen('home');
+  }catch(e){setError(e.message||'Login gagal.');}finally{setBusy(false);}
+ };
+ // Week 5 Task 03: Demonstrasi pembaruan access token secara manual di profil
+ const handleDemoRefresh=async()=>{
+  setBusy(true);setError('');setMessage('');
+  try{
+   await refreshAccessToken();
+   setMessage('Demonstrasi: Access token berhasil di-refresh & dirotasi!');
+   Alert.alert('Sukses Refresh Token','Access token baru berhasil diterbitkan server dan disimpan di Expo SecureStore.');
+  }catch(e){setError(e.message||'Gagal memperbarui token.');}finally{setBusy(false);}
+ };
+ // Week 5 Task 03: Session Management (logout)
+ const logout = async () => {
+  setBusy(true);
+  setError('');
+  let remoteFailed = false;
+  try {
+   // 1. Cabut token pada server (revokasi jti token)
+   await logoutAPI();
+  } catch (e) {
+   remoteFailed = true;
+  }
+  try {
+   // 2. Hapus access token dari SecureStore dan profil dari AsyncStorage
+   await clearSession();
+  } catch (e) {
+   setError('Gagal menghapus sesi lokal. Coba kembali.');
+   setBusy(false);
+   return;
+  }
+  // 3. Bersihkan protected data dan cache dari memory
+  setAuthUser(null);
+  setItems([]);
+  setSelected(null);
+  // 4. Ubah status dan arahkan ke login (isAuthenticated false, tidak bisa back ke Home)
+  setScreen('login');
+  setAuthForm({ name: '', email: '', password: '', confirm: '' });
+  setMessage(
+   remoteFailed
+    ? 'Keluar dari perangkat ini; server tidak terjangkau, token lama akan kedaluwarsa.'
+    : 'Kamu berhasil keluar dari akun.'
+  );
+  setBusy(false);
+ };
+ const doLogout = logout;
+ const navigate=target=>{setScreen(target);setError('');setMessage('');};
+ const selectItem=item=>{setSelected(item);navigate('detail');};
+ const startReport=jenisLaporan=>{setForm({...blankForm,jenisLaporan});setSelectedImage(null);setSelectedImageBase64(null);navigate('report');};
+ const changeReport=(key,value)=>setForm(previous=>({...previous,[key]:value}));
+ // Week 8: POST /barang mengirim laporan barang hilang/temuan ke backend TemuKampus.
+ const submitReport=async()=>{
+  if(!form.nama.trim()||!form.lokasi.trim()||!form.deskripsi.trim()||form.verificationSecret.trim().length<4){
+   setError('Isi nama, lokasi, ciri-ciri, dan ciri rahasia minimal 4 karakter.');
+   return;
+  }
+  // Week 6 Task 03: Periksa koneksi internet sebelum mengirim laporan baru (cegah duplikasi dan kegagalan upload)
+  try {
+   const netState = await NetInfo.fetch();
+   const online = Boolean(netState.isConnected && netState.isInternetReachable !== false);
+   setIsOnline(online);
+   if (!online) {
+    setError('Tidak ada koneksi internet. Formulir dan foto Anda tetap tersimpan. Silakan periksa koneksi Anda dan coba kirim kembali.');
+    return; // Formulir dan foto tetap tersimpan, tidak di-reset, dan tidak melakukan auto-resend
+   }
+  } catch {}
+
+  setBusy(true);setError('');setMessage(selectedImage||selectedImageBase64?'Mengunggah foto barang...':'Menyimpan laporan...');
+  try{
+   let uploadedUrl='';
+   if(selectedImage||selectedImageBase64){
+    uploadedUrl=await guarded(()=>uploadPhoto(selectedImage,selectedImageBase64));
+   }
+   setMessage('Menyimpan laporan...');
+   const payload={...form,image:uploadedUrl};
+   const created=await guarded(()=>createBarang(payload));
+   await refreshItems();setForm(blankForm);setSelectedImage(null);setSelectedImageBase64(null);setSelected(created);setScreen('detail');
+   setMessage(uploadedUrl?'Laporan dan foto berhasil tersimpan pada server.':'Laporan tersimpan pada server.');
+  }catch(e){
+   if(e.status!==401){
+    const errorMessage = (!isOnline || e.isNetworkError)
+     ? 'Gagal mengirim laporan karena gangguan jaringan atau server tidak terjangkau. Formulir dan foto Anda tetap tersimpan.'
+     : (e.message||'Gagal mengirim laporan.');
+    setError(errorMessage);
+    Alert.alert('Laporan Barang Gagal Dikirim', errorMessage);
+   }
+  }finally{setBusy(false);}
+ };
+ const submitClaim=async()=>{
+  if(!claimAnswer.trim()){setError('Isi ciri khusus barang untuk verifikasi.');return;}
+  if(!isOnline){setError('Tidak ada koneksi internet. Periksa koneksi Anda dan coba lagi.');return;}
+  setBusy(true);setError('');setMessage('');
+  try{
+   const result=await guarded(()=>verifyBarang(selected.id,claimAnswer));
+   setSelected(result.item);setClaimAnswer('');setMessage(result.message);await refreshItems();setScreen('detail');
+  }catch(e){
+   if(e.status!==401){
+    const errorMessage=e.message||'Verifikasi barang belum berhasil. Silakan coba lagi.';
+    setError(errorMessage);
+    Alert.alert('Verifikasi Barang Gagal',errorMessage);
+   }
+  }finally{setBusy(false);}
+ };
+ // Week 8: PATCH memperbarui status penanganan setelah verifikasi dan konfirmasi pelapor.
+ const completeReturn=async(target=selected)=>{
+  if(!target?.id)return;
+  if(!isOnline){setError('Tidak ada koneksi internet. Periksa koneksi Anda dan coba lagi.');return;}
+  setBusy(true);setError('');
+  try{
+   const updated=await guarded(()=>markReturned(target.id));
+   if(selected?.id===target.id)setSelected(updated);
+   setMessage('Pengembalian barang berhasil dikonfirmasi. Laporan selesai.');
+   Alert.alert('Laporan Selesai','Pengembalian barang berhasil dikonfirmasi.');
+   await refreshItems();
+  }catch(e){
+   if(e.status!==401){
+    const errorMessage=e.message||'Status penanganan belum berhasil diperbarui. Silakan coba lagi.';
+    setError(errorMessage);
+    Alert.alert('Konfirmasi Pengembalian Gagal',errorMessage);
+   }
+  }finally{setBusy(false);}
+ };
+ const filtered=useMemo(()=>items.filter(item=>{
+  const text=search.trim().toLocaleLowerCase('id');
+  const match=!text||[item.nama,item.kategori,item.lokasi,item.deskripsi,item.jenisLaporan,item.status].some(v=>String(v||'').toLocaleLowerCase('id').includes(text));
+  return match&&(category==='Semua'||item.kategori===category)&&(typeFilter==='Semua'||item.jenisLaporan===typeFilter)&&(statusFilter==='Semua'||item.status===statusFilter);
+ }),[items,search,category,typeFilter,statusFilter]);
+ const followUpItems=useMemo(()=>items.filter(item=>item.status!=='Selesai Dikembalikan'),[items]);
+ const chooseCategory=cat=>{setCategory(cat);setStatusFilter('Semua');navigate('list');};
+ const cover=(child)=> <View style={[styles.pageContent,{maxWidth:wide?860:600,paddingHorizontal:wide?30:18}]}>{child}</View>;
+
+ if(booting)return <SafeAreaView style={styles.center}><ActivityIndicator size="large" color={primary}/><Text style={styles.muted}>Memeriksa sesi login...</Text></SafeAreaView>;
+ if(!authenticated){
+  const registering=screen==='register';
+  return <SafeAreaView style={styles.page}><StatusBar barStyle="dark-content"/>
+   <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':undefined}>
+    <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled">
+     <View style={[styles.authBox,{maxWidth:wide?520:460}]}>
+      <Pressable onPress={()=>{setTestStatus('');setShowSettings(true);}} style={styles.settingsBtn} accessibilityRole="button" accessibilityLabel="Pengaturan Alamat Server API">
+       <Text style={styles.settingsBtnIcon}>⚙️</Text>
+      </Pressable>
+      <View style={styles.logo}><Text style={styles.logoIcon}>⌕</Text></View>
+      <Text style={styles.appTitle}>TEMUKAMPUS</Text>
+      <Text style={styles.authSubtitle}>{registering?'Buat akun baru':'Masuk untuk mencari dan melaporkan barang di kampus'}</Text>
+      {!API_BASE_URL&&<StatusMessage error message="API belum dikonfigurasi. Ikuti README untuk mengisi .env dan menjalankan server."/>}
+      <StatusMessage message={error} error/><StatusMessage message={message}/>
+      {registering&&<Field label="Nama Lengkap" value={authForm.name} onChangeText={v=>changeAuth('name',v)} placeholder="Nama mahasiswa"/>}
+      <Field label="Email" value={authForm.email} onChangeText={v=>changeAuth('email',v)} placeholder="nama@kampus.ac.id" keyboardType="email-address" autoCapitalize="none"/>
+      <Field label="Password" value={authForm.password} onChangeText={v=>changeAuth('password',v)} placeholder="Minimal 8 karakter" secret autoCapitalize="none"/>
+      {registering&&<Field label="Konfirmasi Password" value={authForm.confirm} onChangeText={v=>changeAuth('confirm',v)} placeholder="Ulangi password" secret autoCapitalize="none"/>}
+      <UIButton title={busy?'Tunggu...':registering?'Daftar':'Masuk'} disabled={busy||!API_BASE_URL} onPress={registering?doRegister:doLogin}/>
+      <Pressable accessibilityRole="button" onPress={()=>{setError('');setMessage('');setScreen(registering?'login':'register');}} style={styles.switch}>
+       <Text style={styles.link}>{registering?'Sudah punya akun? Masuk':'Belum punya akun? Daftar sekarang'}</Text>
+      </Pressable>
+      <Text style={styles.authNote}>Akun demo praktikum tersedia pada README. Jangan gunakan password akun pribadi untuk pengujian.</Text>
+     </View>
+    </ScrollView>
+   </KeyboardAvoidingView>
+   <Modal visible={showSettings} transparent animationType="slide" onRequestClose={()=>setShowSettings(false)}>
+    <View style={styles.modalOverlay}>
+     <View style={[styles.modalCard,{maxWidth:wide?520:420}]}>
+      <View style={styles.modalHeader}>
+       <Text style={styles.modalTitle}>⚙️ Pengaturan Server API</Text>
+       <Pressable onPress={()=>setShowSettings(false)} style={styles.modalCloseBtn}>
+        <Text style={styles.modalCloseText}>✕</Text>
+       </Pressable>
+      </View>
+      <Text style={styles.modalDesc}>
+       Ganti alamat IP server backend jika HP dan laptop berpindah Wi-Fi:
+      </Text>
+      <TextInput
+       value={customApiUrl}
+       onChangeText={setCustomApiUrl}
+       placeholder="http://192.168.31.52:4000"
+       autoCapitalize="none"
+       autoCorrect={false}
+       keyboardType="url"
+       style={styles.modalInput}
+      />
+      <Pressable onPress={()=>setCustomApiUrl('http://192.168.31.52:4000')} style={styles.quickIpBtn}>
+       <Text style={styles.quickIpText}>⚡ Gunakan IP Wi-Fi Saat Ini (192.168.31.52)</Text>
+      </Pressable>
+      {!!testStatus && (
+       <Text style={[styles.testStatusText, testStatus.includes('✅')?styles.testSuccess:styles.testFail]}>
+        {testStatus}
+       </Text>
+      )}
+      <View style={styles.modalActions}>
+       <UIButton title={testingConnection?'Menguji...':'Tes Koneksi'} secondary disabled={testingConnection} onPress={handleTestConnection} style={{flex:1}}/>
+       <UIButton title="Simpan" onPress={handleSaveApiUrl} style={{flex:1}}/>
+      </View>
+     </View>
+    </View>
+   </Modal>
+  </SafeAreaView>;
+ }
+ const activeTab=['home','list','report','followup','sensor','profile'].includes(screen)?screen:screen==='detail'||screen==='verify'||screen==='status'?'list':'home';
+ return <SafeAreaView style={styles.page}><StatusBar barStyle="dark-content"/>
+  <Header userName={authUser?.name}/>
+  {!isOnline && (
+   <View style={styles.offlineBanner} accessibilityRole="alert" accessibilityLiveRegion="polite">
+    <Text style={styles.offlineBannerText}>📡 Mode Offline — Tidak ada koneksi internet. Periksa koneksi Anda.</Text>
+   </View>
+  )}
+  {screen==='followup' ? <View style={styles.flex}>
+   {cover(<>
+    <Text style={styles.heading} accessibilityRole="header">Tindak Lanjut Laporan</Text>
+    <Text style={styles.muted}>Laporan yang masih perlu diperhatikan, mulai dari pencocokan barang hingga konfirmasi pengembalian.</Text>
+    <View style={styles.followUpSummary}>
+     <View style={styles.followUpSummaryCell}><Text style={styles.followUpCount}>{followUpItems.length}</Text><Text style={styles.followUpSummaryLabel}>Laporan aktif</Text></View>
+     <View style={styles.followUpSummaryCell}><Text style={styles.followUpCount}>{items.filter(item=>item.ownerId===authUser.id&&item.status==='Menunggu Pengambilan').length}</Text><Text style={styles.followUpSummaryLabel}>Perlu konfirmasi</Text></View>
+     <View style={styles.followUpSummaryCell}><Text style={styles.followUpCount}>{items.filter(item=>item.jenisLaporan==='Ditemukan'&&item.ownerId!==authUser.id&&item.status==='Menunggu Pemilik').length}</Text><Text style={styles.followUpSummaryLabel}>Barang temuan</Text></View>
+    </View>
+    <View style={styles.listRefreshRow}>
+     <Text style={styles.listRefreshHint}>{loadingItems?'Memperbarui laporan...':`${followUpItems.length} laporan masih memerlukan perhatian`}</Text>
+     <Pressable onPress={handleRetry} disabled={loadingItems} accessibilityRole="button" accessibilityLabel="Refresh tindak lanjut" style={[styles.listRefreshButton,loadingItems&&styles.disabled]}>
+      {loadingItems?<ActivityIndicator size="small" color={primary}/>:<Text style={styles.listRefreshText}>↻ Refresh</Text>}
+     </Pressable>
+    </View>
+   </>)}
+   {loadingItems&&items.length===0?cover(<LoadingStateView message="Memuat tindak lanjut laporan..."/>):itemsError?cover(<ErrorStateView error={itemsErrorObj} isOffline={!isOnline} onRetry={handleRetry} retrying={loadingItems}/>):followUpItems.length===0?cover(<EmptyStateView title="Tidak Ada Tindak Lanjut" message="Semua laporan sudah selesai ditangani. Jika ada barang baru, kamu bisa membuat laporan."/>):(
+    <FlatList data={followUpItems} keyExtractor={item=>String(item.id)} contentContainerStyle={[styles.listContent,{maxWidth:wide?860:600,paddingHorizontal:wide?30:18}]} refreshing={loadingItems} onRefresh={handleRetry} renderItem={({item})=>{
+     const info=getFollowUpInfo(item,authUser.id);
+     return <View style={styles.followUpCard}>
+      <View style={styles.followUpCardTop}><Text style={styles.followUpItemName}>{item.nama}</Text><Text style={styles.followUpType}>{item.jenisLaporan==='Hilang'?'Barang Hilang':'Barang Ditemukan'}</Text></View>
+      <Text style={styles.followUpStatus}>{item.status}</Text>
+      <Text style={styles.followUpActionTitle}>{info.title}</Text>
+      <Text style={styles.followUpDescription}>{info.description}</Text>
+      <Text style={styles.followUpMeta}>📍 {item.lokasi}  •  Pelapor: {item.pelapor}</Text>
+      <UIButton title={busy&&info.kind==='confirm'?'Memproses...':info.button} disabled={busy} secondary={info.kind!=='confirm'} onPress={()=>{
+       if(info.kind==='confirm')Alert.alert('Konfirmasi Pengembalian','Pastikan barang benar-benar sudah diterima pemilik sebelum menyelesaikan laporan.',[{text:'Belum',style:'cancel'},{text:'Ya, sudah diterima',onPress:()=>completeReturn(item)}]);
+       else {setSelected(item);navigate('detail');}
+      }}/>
+     </View>;
+    }}/>
+   )}
+  </View> : screen==='list' ? <View style={styles.flex}>
+    {cover(<>
+     <Text style={styles.heading} accessibilityRole="header">Daftar Barang</Text>
+     <SearchBar value={search} onChangeText={setSearch}/>
+     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.choiceRow}>
+      {['Semua',...reportTypes].map(s=><Choice key={s} label={s==='Semua'?'Semua Jenis':`Barang ${s}`} selected={typeFilter===s} onPress={()=>setTypeFilter(s)}/>)}
+     </ScrollView>
+     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.choiceRow}>
+      {['Semua',...handlingStatuses].map(s=><Choice key={s} label={s==='Semua'?'Semua Status':s} selected={statusFilter===s} onPress={()=>setStatusFilter(s)}/>)}
+     </ScrollView>
+     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.choiceRow}>
+      {['Semua',...categories].map(cat=><Choice key={cat} label={cat} selected={category===cat} onPress={()=>setCategory(cat)}/>)}
+     </ScrollView>
+     <View style={styles.listRefreshRow}>
+      <Text style={styles.listRefreshHint}>{loadingItems?'Memuat data dari server...':`${filtered.length} laporan barang ditampilkan`}</Text>
+      <Pressable onPress={handleRetry} disabled={loadingItems} accessibilityRole="button" accessibilityLabel="Muat ulang daftar barang" style={[styles.listRefreshButton,loadingItems&&styles.disabled]}>
+       {loadingItems?<ActivityIndicator size="small" color={primary}/>:<Text style={styles.listRefreshText}>↻ Refresh</Text>}
+      </Pressable>
+     </View>
+    </>)}
+    {loadingItems && items.length === 0 ? (
+     cover(<LoadingStateView message="Memuat data barang..." />)
+    ) : itemsError ? (
+     cover(<ErrorStateView error={itemsErrorObj} isOffline={!isOnline} onRetry={handleRetry} retrying={loadingItems} />)
+    ) : filtered.length === 0 ? (
+     cover(
+      search.trim() || category !== 'Semua' || typeFilter !== 'Semua' || statusFilter !== 'Semua' ? (
+       <Text style={[styles.muted, { textAlign: 'center', marginTop: 24 }]}>Tidak ada barang yang sesuai kriteria pencarian/filter.</Text>
+      ) : (
+       <EmptyStateView title="Belum Ada Barang" message="Belum ada laporan barang." />
+      )
+     )
+    ) : (
+     <FlatList data={filtered} keyExtractor={item=>String(item.id)} renderItem={({item})=><ItemCard item={item} compact={compactMode} onPress={()=>selectItem(item)}/>}
+      contentContainerStyle={[styles.listContent,{maxWidth:wide?860:600,paddingHorizontal:wide?30:18}]}
+      refreshing={loadingItems} onRefresh={handleRetry} />
+    )}
+   </View> :
+   <ScrollView style={styles.flex} keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom:30}}>
+    {cover(<>
+     {screen==='home'&&<>
+      <SearchBar value={search} onChangeText={setSearch}/>
+      <ActionMenu onLost={()=>startReport('Hilang')} onFound={()=>startReport('Ditemukan')}/>
+      <Pressable onPress={()=>navigate('sensor')} accessibilityRole="button" accessibilityLabel="Fitur Keamanan Pengaman Meja" style={styles.guardBanner}>
+       <Text style={{fontSize:24,marginRight:12}}>🛡️</Text>
+       <View style={{flex:1}}>
+        <Text style={styles.guardBannerTitle}>Fitur Keamanan: Pengaman Meja</Text>
+        <Text style={styles.guardBannerDesc}>Tinggalkan laptop di perpus/kantin dengan tenang lewat alarm sensor gerak</Text>
+       </View>
+       <Text style={styles.guardBannerArrow}>›</Text>
+      </Pressable>
+      <CategoryList onSelect={chooseCategory}/>
+      {loadingItems && items.length === 0 ? (
+       <LoadingStateView message="Memuat data barang..." />
+      ) : itemsError ? (
+       <ErrorStateView error={itemsErrorObj} isOffline={!isOnline} onRetry={handleRetry} retrying={loadingItems} />
+      ) : items.length === 0 ? (
+       <EmptyStateView title="Belum Ada Barang" message="Belum ada laporan barang." />
+      ) : (
+       <>
+        {loadingItems && <ActivityIndicator color={primary} style={{ marginVertical: 8 }} />}
+        <LatestItems items={filtered} onOpen={selectItem} onViewAll={()=>navigate('list')}/>
+       </>
+      )}
+      <UIButton title={loadingItems ? "Memuat..." : "Muat ulang data barang"} onPress={handleRetry} secondary disabled={loadingItems} accessibilityLabel="Muat ulang data barang"/>
+     </>}
+     {screen==='report'&&<>
+      <Text style={styles.heading} accessibilityRole="header">Lapor Barang</Text><Text style={styles.muted}>Isi informasi dengan jelas untuk membantu proses pencarian.</Text>
+      <Text style={styles.label}>Jenis Laporan</Text><View style={styles.choiceRow}>{reportTypes.map(s=><Choice key={s} label={`Barang ${s}`} selected={form.jenisLaporan===s} onPress={()=>changeReport('jenisLaporan',s)}/>)}</View>
+      <StatusMessage message={error} error/>
+      <Field label="Nama Barang" value={form.nama} onChangeText={v=>changeReport('nama',v)}/>
+      <Text style={styles.label}>Kategori</Text><View style={styles.wrap}>{categories.map(cat=><Choice key={cat} label={cat} selected={form.kategori===cat} onPress={()=>changeReport('kategori',cat)}/>)}</View>
+      <Field label="Lokasi terakhir / ditemukan" value={form.lokasi} onChangeText={v=>changeReport('lokasi',v)}/>
+      <Field label="Ciri-ciri Barang" value={form.deskripsi} onChangeText={v=>changeReport('deskripsi',v)} multiline placeholder="Warna, ukuran, ciri khusus..."/>
+      <View style={styles.field}>
+       <Text style={styles.label}>Foto Barang (opsional)</Text>
+       {!selectedImage ? (
+        <View style={styles.photoPickerRow}>
+         <Pressable onPress={pickFromGallery} accessibilityRole="button" accessibilityLabel="Pilih foto barang dari galeri" style={styles.pickerBtn}>
+          <Text style={styles.pickerBtnIcon}>🖼️</Text>
+          <Text style={styles.pickerBtnText}>Pilih dari Galeri</Text>
+         </Pressable>
+         <Pressable onPress={takePhoto} accessibilityRole="button" accessibilityLabel="Ambil foto barang dengan kamera" style={styles.pickerBtn}>
+          <Text style={styles.pickerBtnIcon}>📸</Text>
+          <Text style={styles.pickerBtnText}>Ambil Foto</Text>
+         </Pressable>
+        </View>
+       ) : (
+        <View style={styles.previewContainer}>
+         <Image source={{uri:selectedImage}} style={styles.previewImage} accessibilityLabel="Preview foto barang yang dipilih" resizeMode="cover"/>
+         <View style={styles.previewActions}>
+          <Pressable onPress={changePhotoChoice} accessibilityRole="button" accessibilityLabel="Ganti foto barang" style={[styles.previewBtn,styles.previewBtnChange]}>
+           <Text style={styles.previewBtnChangeText}>🔄 Ganti Foto</Text>
+          </Pressable>
+          <Pressable onPress={()=>{setSelectedImage(null);setSelectedImageBase64(null);}} accessibilityRole="button" accessibilityLabel="Hapus foto barang" style={[styles.previewBtn,styles.previewBtnDelete]}>
+           <Text style={styles.previewBtnDeleteText}>🗑️ Hapus Foto</Text>
+          </Pressable>
+         </View>
+        </View>
+       )}
+      </View>
+      <Field label="Ciri rahasia untuk verifikasi" value={form.verificationSecret} onChangeText={v=>changeReport('verificationSecret',v)} placeholder="Jawaban yang diketahui pemilik barang"/>
+      <Text style={styles.hint}>Ciri rahasia tidak akan ditampilkan pada daftar barang. Ini adalah simulasi verifikasi untuk praktikum, bukan pemeriksaan identitas resmi.</Text>
+      <UIButton title={busy?'Mengirim...':'Kirim Laporan'} onPress={submitReport} disabled={busy}/>
+     </>}
+     {screen==='detail'&&selected&&<>
+      <UIButton title="‹ Kembali ke Daftar" secondary onPress={()=>navigate('list')}/>
+      <Text style={styles.heading} accessibilityRole="header">Detail Barang</Text>
+      {Boolean(selected.image) && (
+       <View style={styles.detailImageContainer}>
+        <Image source={{uri:resolveImageUrl(selected.image)}} style={styles.detailImage} accessibilityLabel={`Foto ${selected.nama}`} resizeMode="cover"/>
+       </View>
+      )}
+      <Text style={styles.detailName}>{selected.nama}</Text>
+      {[['Jenis Laporan',`Barang ${selected.jenisLaporan}`],['Status Penanganan',selected.status],['Kategori',selected.kategori],['Lokasi',selected.lokasi],['Tanggal',selected.tanggal],['Pelapor',selected.pelapor],['Ciri-ciri',selected.deskripsi],['Verifikasi',selected.verificationStatus]].map(([key,value])=><View key={key} style={styles.detailRow}><Text style={styles.detailLabel}>{key}</Text><Text style={styles.detailValue}>{value}</Text></View>)}
+      <StatusMessage message={error} error/><StatusMessage message={message}/>
+      <UIButton title="Lihat Perkembangan Laporan" secondary onPress={()=>navigate('status')}/>
+      {selected.ownerId!==authUser.id&&selected.status!=='Selesai Dikembalikan'&&selected.verificationStatus!=='Terverifikasi'&&<UIButton title="Verifikasi Kepemilikan Barang" onPress={()=>{setClaimAnswer('');navigate('verify');}}/>}
+      {selected.ownerId===authUser.id&&selected.verificationStatus==='Terverifikasi'&&selected.status==='Menunggu Pengambilan'&&<UIButton title="Konfirmasi Barang Sudah Diterima" onPress={()=>Alert.alert('Konfirmasi Pengembalian','Pastikan barang benar-benar sudah diterima pemilik sebelum menyelesaikan laporan.',[{text:'Belum',style:'cancel'},{text:'Ya, sudah diterima',onPress:()=>completeReturn(selected)}])} disabled={busy}/>}
+     </>}
+     {screen==='status'&&selected&&<>
+      <UIButton title="‹ Kembali ke Detail" secondary onPress={()=>navigate('detail')}/>
+      <Text style={styles.heading} accessibilityRole="header">Perkembangan Laporan</Text><Text style={styles.detailName}>{selected.nama}</Text>
+      <View style={styles.statusBox}>
+       <Text style={styles.statusBoxTitle}>Barang {selected.jenisLaporan}</Text>
+       <Text style={styles.statusCurrent}>{selected.status}</Text>
+       <Text style={styles.muted}>{getHandlingDescription(selected)}</Text>
+       <View style={styles.timelineRow}><Text style={styles.timelineDone}>✓</Text><View style={styles.timelineText}><Text style={styles.timelineTitle}>Laporan diterima</Text><Text style={styles.mutedSmall}>Informasi barang tersimpan di TemuKampus.</Text></View></View>
+       <View style={styles.timelineRow}><Text style={selected.status==='Belum Ditemukan'||selected.status==='Menunggu Pemilik'?styles.timelineActive:styles.timelineDone}>{selected.status==='Belum Ditemukan'||selected.status==='Menunggu Pemilik'?'◉':'✓'}</Text><View style={styles.timelineText}><Text style={styles.timelineTitle}>{selected.jenisLaporan==='Hilang'?'Pencarian barang':'Menunggu pemilik'}</Text><Text style={styles.mutedSmall}>{selected.jenisLaporan==='Hilang'?'Laporan menunggu kecocokan dengan barang temuan.':'Pemilik memeriksa ciri khusus barang.'}</Text></View></View>
+       <View style={styles.timelineRow}><Text style={selected.status==='Menunggu Pengambilan'?'◉':selected.status==='Selesai Dikembalikan'?'✓':'○'} style={selected.status==='Menunggu Pengambilan'?styles.timelineActive:selected.status==='Selesai Dikembalikan'?styles.timelineDone:styles.timelinePending}>{selected.status==='Menunggu Pengambilan'?'◉':selected.status==='Selesai Dikembalikan'?'✓':'○'}</Text><View style={styles.timelineText}><Text style={styles.timelineTitle}>Menunggu pengambilan</Text><Text style={styles.mutedSmall}>Ciri barang telah diverifikasi dan menunggu konfirmasi pelapor.</Text></View></View>
+       <View style={styles.timelineRow}><Text style={selected.status==='Selesai Dikembalikan'?styles.timelineDone:styles.timelinePending}>{selected.status==='Selesai Dikembalikan'?'✓':'○'}</Text><View style={styles.timelineText}><Text style={styles.timelineTitle}>Selesai dikembalikan</Text><Text style={styles.mutedSmall}>Pelapor mengonfirmasi barang sudah diterima.</Text></View></View>
+      </View>
+     </>}
+     {screen==='verify'&&selected&&<>
+      <UIButton title="‹ Kembali ke Detail" secondary onPress={()=>navigate('detail')}/>
+      <Text style={styles.heading} accessibilityRole="header">Verifikasi Pengambilan</Text>
+      <Text style={styles.muted}>Masukkan ciri khusus yang diketahui pemilik. Server yang memeriksa jawabannya.</Text>
+      <StatusMessage message={error} error/>
+      <Field label="Ciri khusus barang" value={claimAnswer} onChangeText={setClaimAnswer} multiline placeholder="Contoh: logo kecil di pojok"/>
+      <UIButton title={busy?'Memverifikasi...':'Kirim Verifikasi'} disabled={busy} onPress={submitClaim}/>
+      <Text style={styles.hint}>Untuk penggunaan nyata diperlukan pemeriksaan oleh petugas kampus sebelum penyerahan barang.</Text>
+     </>}
+     {screen==='sensor'&&<SensorScreen onReportLost={()=>startReport('Hilang')}/>}
+     {screen==='profile'&&<>
+      <Text style={styles.heading} accessibilityRole="header">Profil</Text>
+      <View style={styles.profile}><Text style={styles.detailName}>{authUser.name}</Text><Text style={styles.muted}>{authUser.email}</Text></View>
+      <Text style={styles.label}>Preferensi tersimpan (AsyncStorage)</Text>
+      <Choice label={compactMode?'Mode ringkas: aktif':'Mode ringkas: nonaktif'} selected={compactMode} onPress={async()=>{
+       const next=!compactMode;try{await savePreference({compactMode:next});setCompactMode(next);}catch{setError('Gagal menyimpan preferensi.');}
+      }}/>
+      <Text style={styles.hint}>Mode ringkas menyimpan preferensi tampilan. Login menggunakan token server yang disimpan di SecureStore.</Text>
+      <StatusMessage message={error} error/>
+      <UIButton title={busy?'Memproses...':'Simulasi Refresh Token'} outline disabled={busy} onPress={handleDemoRefresh}/>
+      <UIButton title={busy?'Memproses...':'Keluar (Logout)'} danger disabled={busy} onPress={()=>Alert.alert('Konfirmasi Logout','Keluar dari akun TemuKampus?', [{text:'Batal',style:'cancel'},{text:'Keluar',style:'destructive',onPress:logout}])}/>
+     </>}
+    </>)}
+   </ScrollView>}
+  <BottomNav active={activeTab} onSelect={target=>{if(target==='report')startReport('Hilang');else navigate(target);}}/>
+ </SafeAreaView>;
+}
+
+const styles=StyleSheet.create({
+ flex:{flex:1},page:{flex:1,backgroundColor:'#F8FAFC'},pageContent:{alignSelf:'center',width:'100%',paddingTop:18},center:{flex:1,alignItems:'center',justifyContent:'center',gap:16},muted:{fontSize:14,lineHeight:21,color:'#526580',marginVertical:8},hint:{fontSize:12,lineHeight:19,color:'#64748B',marginBottom:16},
+ heading:{fontWeight:'800',fontSize:22,color:'#14213A',marginBottom:14},detailName:{fontWeight:'800',fontSize:19,color:'#15335A',marginVertical:10},
+ listRefreshRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:10,marginTop:4,marginBottom:8},listRefreshHint:{flex:1,color:'#64748B',fontSize:12},listRefreshButton:{minHeight:36,paddingHorizontal:12,borderRadius:9,borderWidth:1,borderColor:'#BFDBFE',backgroundColor:'#EFF6FF',alignItems:'center',justifyContent:'center'},listRefreshText:{color:primary,fontSize:12,fontWeight:'800'},
+ button:{backgroundColor:primary,borderRadius:12,minHeight:48,alignItems:'center',justifyContent:'center',paddingHorizontal:15,paddingVertical:10,marginVertical:8},buttonText:{color:'#fff',fontSize:15,fontWeight:'800',textAlign:'center'},outline:{backgroundColor:'#fff',borderWidth:1,borderColor:primary},outlineText:{color:primary},danger:{backgroundColor:'#B91C1C'},disabled:{opacity:.55},
+ label:{fontSize:14,color:'#213047',fontWeight:'700',marginBottom:7},field:{marginBottom:15},inputRow:{minHeight:52,borderWidth:1,borderColor:'#CBD5E1',backgroundColor:'#fff',borderRadius:12,flexDirection:'row',alignItems:'center'},input:{flex:1,color:'#0F172A',fontSize:15,paddingHorizontal:13,paddingVertical:10,minHeight:48},multiline:{minHeight:95,textAlignVertical:'top'},eye:{minWidth:66,minHeight:48,alignItems:'center',justifyContent:'center',paddingHorizontal:8},eyeText:{fontWeight:'700',color:primary,fontSize:12},
+ authScroll:{flexGrow:1,alignItems:'center',justifyContent:'center',padding:18},authBox:{width:'100%',padding:20,borderRadius:16,backgroundColor:'#fff',borderWidth:1,borderColor:'#E2E8F0'},logo:{backgroundColor:'#DFEAFE',borderRadius:50,width:76,height:76,alignItems:'center',justifyContent:'center',alignSelf:'center',marginBottom:14},logoIcon:{fontSize:43,fontWeight:'bold',color:primary},appTitle:{fontSize:25,fontWeight:'900',color:'#14213A',textAlign:'center'},authSubtitle:{fontSize:14,color:'#64748B',textAlign:'center',marginBottom:22,marginTop:8,lineHeight:20},switch:{padding:13,minHeight:44,alignItems:'center'},link:{color:primary,fontWeight:'700'},authNote:{marginTop:16,fontSize:11,textAlign:'center',color:'#64748B',lineHeight:17},
+ message:{padding:12,borderRadius:10,marginVertical:9,fontSize:13,lineHeight:20},error:{color:'#9F1239',backgroundColor:'#FFF1F2',borderWidth:1,borderColor:'#FECDD3'},success:{color:'#166534',backgroundColor:'#DCFCE7'},
+ choiceRow:{flexDirection:'row',gap:8,marginBottom:10,alignItems:'center'},choice:{paddingHorizontal:14,paddingVertical:10,minHeight:44,minWidth:55,alignItems:'center',justifyContent:'center',borderRadius:25,borderWidth:1,borderColor:'#CBD5E1',backgroundColor:'#fff',marginRight:5,marginBottom:5},choiceOn:{backgroundColor:primary,borderColor:primary},choiceText:{color:'#334155',fontSize:13,fontWeight:'600'},choiceTextOn:{color:'#fff'},wrap:{flexDirection:'row',flexWrap:'wrap',gap:3,marginBottom:15},
+ listContent:{width:'100%',alignSelf:'center',paddingBottom:20,flexGrow:1},followUpSummary:{flexDirection:'row',backgroundColor:'#EFF6FF',borderColor:'#BFDBFE',borderWidth:1,borderRadius:14,paddingVertical:14,marginBottom:14},followUpSummaryCell:{flex:1,alignItems:'center',justifyContent:'center',paddingHorizontal:4},followUpCount:{fontSize:22,fontWeight:'900',color:primary},followUpSummaryLabel:{fontSize:10,color:'#475569',fontWeight:'700',textAlign:'center',marginTop:3},followUpCard:{backgroundColor:'#fff',borderRadius:14,borderWidth:1,borderColor:'#DCE5F0',padding:15,marginBottom:11},followUpCardTop:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:8},followUpItemName:{flex:1,fontSize:16,fontWeight:'800',color:'#14213A'},followUpType:{fontSize:10,fontWeight:'800',color:primary,backgroundColor:'#EFF6FF',paddingHorizontal:8,paddingVertical:5,borderRadius:20},followUpStatus:{alignSelf:'flex-start',fontSize:11,fontWeight:'800',color:'#6D28D9',backgroundColor:'#F3E8FF',paddingHorizontal:9,paddingVertical:5,borderRadius:20,marginTop:8},followUpActionTitle:{fontSize:14,fontWeight:'800',color:'#1E293B',marginTop:10},followUpDescription:{fontSize:12,color:'#526580',lineHeight:18,marginTop:4},followUpMeta:{fontSize:11,color:'#64748B',marginTop:9},detailRow:{borderBottomWidth:1,borderColor:'#E2E8F0',paddingVertical:13,flexDirection:'row'},detailLabel:{width:'33%',fontSize:13,color:'#64748B',fontWeight:'700'},detailValue:{flex:1,fontSize:14,color:'#17283C',lineHeight:21},statusBox:{backgroundColor:'#fff',padding:20,borderRadius:14,borderWidth:1,borderColor:'#CBD5E1',marginBottom:20},statusBoxTitle:{fontSize:16,fontWeight:'800',color:primary},statusCurrent:{fontSize:18,fontWeight:'900',color:'#0F172A',marginTop:7},timelineRow:{flexDirection:'row',alignItems:'flex-start',gap:10,marginTop:13},timelineText:{flex:1},timelineTitle:{fontSize:13,fontWeight:'800',color:'#1E293B'},mutedSmall:{fontSize:11,color:'#64748B',lineHeight:16,marginTop:2},timelineDone:{fontSize:18,fontWeight:'900',color:'#15803D',width:22},timelineActive:{fontSize:18,fontWeight:'900',color:'#2563EB',width:22},timelinePending:{fontSize:18,fontWeight:'900',color:'#94A3B8',width:22},profile:{backgroundColor:'#fff',padding:20,borderRadius:14,borderWidth:1,borderColor:'#E2E8F0',marginBottom:24},
+ photoPickerRow:{flexDirection:'row',gap:10,marginVertical:4},
+ pickerBtn:{flex:1,minHeight:48,backgroundColor:'#fff',borderWidth:1,borderColor:'#CBD5E1',borderRadius:12,flexDirection:'row',alignItems:'center',justifyContent:'center',paddingHorizontal:10,paddingVertical:10,gap:8},
+ pickerBtnIcon:{fontSize:18},
+ pickerBtnText:{fontSize:13,fontWeight:'700',color:primary},
+ previewContainer:{borderWidth:1,borderColor:'#CBD5E1',borderRadius:12,overflow:'hidden',backgroundColor:'#fff',padding:10,marginVertical:4},
+ previewImage:{width:'100%',height:200,borderRadius:10,backgroundColor:'#F1F5F9'},
+ previewActions:{flexDirection:'row',gap:10,marginTop:10},
+ previewBtn:{flex:1,minHeight:44,borderRadius:10,alignItems:'center',justifyContent:'center',paddingVertical:8,paddingHorizontal:10},
+ previewBtnChange:{backgroundColor:'#EFF6FF',borderWidth:1,borderColor:'#BFDBFE'},
+ previewBtnChangeText:{color:'#1D4ED8',fontWeight:'700',fontSize:13},
+ previewBtnDelete:{backgroundColor:'#FEF2F2',borderWidth:1,borderColor:'#FECACA'},
+ previewBtnDeleteText:{color:'#DC2626',fontWeight:'700',fontSize:13},
+ detailImageContainer:{width:'100%',borderRadius:14,overflow:'hidden',marginBottom:14,borderWidth:1,borderColor:'#CBD5E1',backgroundColor:'#F1F5F9'},
+ detailImage:{width:'100%',height:220,backgroundColor:'#F1F5F9'},
+ offlineBanner:{backgroundColor:'#B91C1C',paddingVertical:9,paddingHorizontal:16,alignItems:'center',justifyContent:'center',width:'100%'},
+ offlineBannerText:{color:'#FFFFFF',fontSize:13,fontWeight:'700',textAlign:'center'},
+ stateContainer:{alignItems:'center',justifyContent:'center',paddingVertical:32,paddingHorizontal:20,backgroundColor:'#FFFFFF',borderRadius:16,borderWidth:1,borderColor:'#E2E8F0',marginVertical:14,alignSelf:'stretch'},
+ stateIcon:{fontSize:44,marginBottom:10,textAlign:'center'},
+ stateTitle:{fontSize:18,fontWeight:'800',color:'#14213A',marginBottom:6,textAlign:'center'},
+ stateMessage:{fontSize:14,color:'#526580',textAlign:'center',lineHeight:21,marginBottom:16,maxWidth:420},
+ stateText:{fontSize:14,color:'#526580',fontWeight:'600',marginTop:10,textAlign:'center'},
+ retryBtn:{minWidth:140,marginTop:4},
+ guardBanner:{flexDirection:'row',alignItems:'center',backgroundColor:'#ECFDF5',borderWidth:1,borderColor:'#A7F3D0',borderRadius:14,padding:13,marginVertical:10},
+ guardBannerTitle:{fontSize:14,fontWeight:'800',color:'#065F46'},
+ guardBannerDesc:{fontSize:11,color:'#047857',lineHeight:16,marginTop:2},
+ guardBannerArrow:{fontSize:20,fontWeight:'800',color:'#059669',marginLeft:8},
+ settingsBtn:{position:'absolute',top:16,right:16,zIndex:10,width:40,height:40,borderRadius:20,backgroundColor:'#EFF6FF',borderWidth:1,borderColor:'#BFDBFE',alignItems:'center',justifyContent:'center'},
+ settingsBtnIcon:{fontSize:20},
+ modalOverlay:{flex:1,backgroundColor:'rgba(0,0,0,0.5)',justifyContent:'center',alignItems:'center',padding:20},
+ modalCard:{width:'100%',backgroundColor:'#FFFFFF',borderRadius:18,padding:20,shadowColor:'#000',shadowOffset:{width:0,height:2},shadowOpacity:0.25,shadowRadius:4,elevation:5},
+ modalHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:10},
+ modalTitle:{fontSize:17,fontWeight:'800',color:'#14213A'},
+ modalCloseBtn:{padding:6},
+ modalCloseText:{fontSize:18,color:'#64748B',fontWeight:'700'},
+ modalDesc:{fontSize:13,color:'#475569',marginBottom:12,lineHeight:19},
+ modalInput:{borderWidth:1,borderColor:'#CBD5E1',backgroundColor:'#F8FAFC',borderRadius:10,paddingHorizontal:12,paddingVertical:10,fontSize:14,color:'#0F172A',marginBottom:8},
+ quickIpBtn:{backgroundColor:'#EFF6FF',borderWidth:1,borderColor:'#BFDBFE',borderRadius:8,paddingVertical:7,paddingHorizontal:10,marginBottom:12,alignItems:'center'},
+ quickIpText:{fontSize:12,fontWeight:'700',color:'#1D4ED8'},
+ testStatusText:{fontSize:12,fontWeight:'700',padding:8,borderRadius:8,marginBottom:10,textAlign:'center'},
+ testSuccess:{backgroundColor:'#DCFCE7',color:'#15803D'},
+ testFail:{backgroundColor:'#FEE2E2',color:'#B91C1C'},
+ modalActions:{flexDirection:'row',gap:10,marginTop:6}
+});
