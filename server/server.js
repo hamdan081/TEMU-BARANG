@@ -1,5 +1,5 @@
-/** TemuKampus classroom API. Node.js built-ins only; no external database required.
- * Development server for Week 4–5 (REST + DTO + JWT) and Week 8 (async report lifecycle).
+/** TemuBarang classroom API. Uses Node.js built-ins plus Multer for multipart image upload; no external database required.
+ * Development server for Week 4–5 (REST + DTO + JWT), Week 9 (async reports), and Week 10 (GPS metadata).
  * Production requires HTTPS, proper deployment/security reviews, and persistent database.
  */
 const http = require('node:http');
@@ -9,10 +9,10 @@ const crypto = require('node:crypto');
 const multer = require('multer');
 
 const initialBarang = [
-  {id:1,nama:'Dompet Hitam',kategori:'Aksesoris',deskripsi:'Dompet hitam dengan jahitan di sudut kiri.',lokasi:'Gedung A',tanggal:'2026-10-12',image:'',jenisLaporan:'Hilang',status:'Belum Ditemukan',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecret:'jahitan kiri'},
-  {id:2,nama:'Kunci Motor',kategori:'Aksesoris',deskripsi:'Kunci motor dengan gantungan berbentuk bintang.',lokasi:'Area Parkir',tanggal:'2026-10-13',image:'',jenisLaporan:'Ditemukan',status:'Menunggu Pemilik',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecret:'bintang'},
-  {id:3,nama:'Laptop ASUS',kategori:'Elektronik',deskripsi:'Laptop warna abu-abu ditemukan terakhir di perpustakaan.',lokasi:'Perpustakaan',tanggal:'2026-10-14',image:'',jenisLaporan:'Hilang',status:'Belum Ditemukan',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecret:'asus'},
-  {id:4,nama:'Kartu Mahasiswa',kategori:'Dokumen',deskripsi:'Kartu mahasiswa ditemukan di dekat ruang kelas.',lokasi:'Gedung B',tanggal:'2026-10-15',image:'',jenisLaporan:'Ditemukan',status:'Menunggu Pemilik',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecret:'kampus'}
+  {id:1,nama:'Dompet Hitam',kategori:'Aksesoris',deskripsi:'Dompet hitam dengan jahitan di sudut kiri.',lokasi:'Gedung A',tanggal:'2026-10-12',image:'',jenisLaporan:'Hilang',status:'Belum Ditemukan',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecretHash:'temu-seed-1:ef1db4ac6820226782fdff9196fd5399d336890a69af09080017f382dabf2cbff07a34a77aaabaacf040f1a49d1a49afc8766739bd1b612887318610b7562909'},
+  {id:2,nama:'Kunci Motor',kategori:'Aksesoris',deskripsi:'Kunci motor dengan gantungan berbentuk bintang.',lokasi:'Area Parkir',tanggal:'2026-10-13',image:'',jenisLaporan:'Ditemukan',status:'Menunggu Pemilik',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecretHash:'temu-seed-2:cb5a991b54c1aace28a2c8e3f4733ebb42da135b912f0e3185d29bcc999498e0c51dc3a5a22069b76b4563d96f64c6831de4efce03732ce8bec55852d61095ca'},
+  {id:3,nama:'Laptop ASUS',kategori:'Elektronik',deskripsi:'Laptop warna abu-abu ditemukan terakhir di perpustakaan.',lokasi:'Perpustakaan',tanggal:'2026-10-14',image:'',jenisLaporan:'Hilang',status:'Belum Ditemukan',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecretHash:'temu-seed-3:8498ae14c93320fbf4f659949feffce5eac40305c4ee074cfc249e057aa78db56ef8263e77584508ab6f261840a27ed44d32516f9b3f244eca94a6d784e63561'},
+  {id:4,nama:'Kartu Mahasiswa',kategori:'Dokumen',deskripsi:'Kartu mahasiswa ditemukan di dekat ruang kelas.',lokasi:'Gedung B',tanggal:'2026-10-15',image:'',jenisLaporan:'Ditemukan',status:'Menunggu Pemilik',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecretHash:'temu-seed-4:e252b6f96b050d3351eee7bdd09c19d06aaf1524c5ceadea0d527b7d4e5e47b8e00885b0eb5205e7d79826543f9e5063ebf2f094cef622f93fca1cafcc1275aa'}
 ];
 
 const normalizeBarang = (item = {}) => {
@@ -24,16 +24,27 @@ const normalizeBarang = (item = {}) => {
   if (status === 'Hilang') status = 'Belum Ditemukan';
   if (status === 'Ditemukan') status = 'Menunggu Pemilik';
   if (status === 'Dikembalikan') status = 'Selesai Dikembalikan';
-  if (status === 'Menunggu Verifikasi') {
-    status = jenisLaporan === 'Ditemukan' ? 'Menunggu Pemilik' : 'Belum Ditemukan';
-  }
-  if (item.verificationStatus === 'Terverifikasi' && status !== 'Selesai Dikembalikan' && status !== 'Belum Terselesaikan') {
+  if (item.verificationStatus === 'Terverifikasi' && status !== 'Selesai Dikembalikan') {
     status = 'Menunggu Pengambilan';
   }
-  if (!['Belum Ditemukan', 'Menunggu Pemilik', 'Menunggu Verifikasi', 'Menunggu Pengambilan', 'Selesai Dikembalikan', 'Belum Terselesaikan'].includes(status)) {
+  if (!['Belum Ditemukan', 'Menunggu Pemilik', 'Menunggu Pengambilan', 'Selesai Dikembalikan'].includes(status)) {
     status = jenisLaporan === 'Hilang' ? 'Belum Ditemukan' : 'Menunggu Pemilik';
   }
-  return { ...item, jenisLaporan, status };
+  const latitude = item.latitude === null || item.latitude === undefined || item.latitude === '' ? null : Number(item.latitude);
+  const longitude = item.longitude === null || item.longitude === undefined || item.longitude === '' ? null : Number(item.longitude);
+  const accuracy = item.accuracy === null || item.accuracy === undefined || item.accuracy === '' ? null : Number(item.accuracy);
+  return {
+    ...item,
+    jenisLaporan,
+    status,
+    latitude: Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 ? latitude : null,
+    longitude: Number.isFinite(longitude) && longitude >= -180 && longitude <= 180 ? longitude : null,
+    accuracy: Number.isFinite(accuracy) && accuracy >= 0 ? accuracy : null,
+    alamat: typeof item.alamat === 'string' ? item.alamat : '',
+    matchedReportId: item.matchedReportId === null || item.matchedReportId === undefined || item.matchedReportId === '' ? null : (Number.isFinite(Number(item.matchedReportId)) ? Number(item.matchedReportId) : null),
+    matchedAt: typeof item.matchedAt === 'string' ? item.matchedAt : null,
+    editedAt: typeof item.editedAt === 'string' ? item.editedAt : null,
+  };
 };
 
 const b64url = obj => Buffer.from(JSON.stringify(obj)).toString('base64url');
@@ -83,12 +94,32 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
   const signingSecret=secret || (fs.existsSync(secretFile)?fs.readFileSync(secretFile,'utf8'):crypto.randomBytes(48).toString('hex'));
   if(!secret && !fs.existsSync(secretFile)) fs.writeFileSync(secretFile,signingSecret,{mode:0o600});
   const dbFile=path.join(dataDir,'database.json');
-  let db=fs.existsSync(dbFile)?JSON.parse(fs.readFileSync(dbFile,'utf8')):{users:[],barang:initialBarang,revokedJtis:[]};
-  db.barang = (Array.isArray(db.barang) ? db.barang : initialBarang).map(normalizeBarang);
+  let db=fs.existsSync(dbFile)?JSON.parse(fs.readFileSync(dbFile,'utf8')):{users:[],barang:initialBarang,revokedJtis:[],moderationReports:[]};
+  db.users = Array.isArray(db.users) ? db.users : [];
+  db.revokedJtis = Array.isArray(db.revokedJtis) ? db.revokedJtis : [];
+  db.moderationReports = Array.isArray(db.moderationReports) ? db.moderationReports : [];
+  db.barang = (Array.isArray(db.barang) ? db.barang : initialBarang).map(item => {
+    const normalized = normalizeBarang(item);
+    // Migrasi satu kali: rahasia verifikasi lama yang tersimpan plaintext diubah menjadi hash scrypt.
+    if (!normalized.verificationSecretHash && typeof item.verificationSecret === 'string' && item.verificationSecret.trim()) {
+      normalized.verificationSecretHash = hashPassword(item.verificationSecret.trim().toLocaleLowerCase('id'));
+    }
+    delete normalized.verificationSecret;
+    // Data lama pernah memverifikasi rahasia milik pembuat laporan temuan; status itu tidak valid untuk alur klaim berpasangan.
+    if (!normalized.matchedReportId && normalized.verificationStatus === 'Terverifikasi') {
+      normalized.verificationStatus = 'Belum diverifikasi';
+      normalized.status = normalized.jenisLaporan === 'Hilang' ? 'Belum Ditemukan' : 'Menunggu Pemilik';
+    }
+    return normalized;
+  });
   if (!db.users.some(u=>u.email==='demo@kampus.ac.id')) {
-    db.users.push({id:1,name:'Mahasiswa Demo',email:'demo@kampus.ac.id',passwordHash:hashPassword('Demo123!')});
+    db.users.push({id:Math.max(0,...db.users.map(u=>Number(u.id)||0))+1,name:'Mahasiswa Demo',email:'demo@kampus.ac.id',passwordHash:hashPassword('Demo123!'),role:'user'});
   }
-  const save=()=>fs.writeFileSync(dbFile,JSON.stringify(db,null,2),{mode:0o600});
+  const save=()=>{
+    const temporaryFile = `${dbFile}.tmp`;
+    fs.writeFileSync(temporaryFile,JSON.stringify(db,null,2),{mode:0o600});
+    fs.renameSync(temporaryFile,dbFile);
+  };
   save();
   const sign = payload=> {
     const first=b64url({alg:'HS256',typ:'JWT'}),second=b64url(payload);
@@ -117,18 +148,35 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
     return user?{user,tokenData:data}:null;
   }
   const publicUser=u=>({id:u.id,name:u.name,email:u.email});
-  const publicBarang=b=>({id:b.id,nama:b.nama,kategori:b.kategori,deskripsi:b.deskripsi,lokasi:b.lokasi,tanggal:b.tanggal,image:b.image,jenisLaporan:b.jenisLaporan,status:b.status,pelapor:b.pelapor,ownerId:b.ownerId,verificationStatus:b.verificationStatus});
+  const publicBarang=(b,viewerId)=>{
+    const pairedReport = b.matchedReportId ? db.barang.find(item => item.id === b.matchedReportId) : null;
+    const isOwner = Number(b.ownerId) === Number(viewerId);
+    const isPairedParticipant = Number(pairedReport?.ownerId) === Number(viewerId);
+    const canSeePreciseLocation = isOwner || isPairedParticipant;
+    const approximate = value => Number.isFinite(value) ? Number(value.toFixed(3)) : null;
+    return {
+      id:b.id,nama:b.nama,kategori:b.kategori,deskripsi:b.deskripsi,lokasi:b.lokasi,tanggal:b.tanggal,
+      image:b.image,jenisLaporan:b.jenisLaporan,status:b.status,pelapor:isOwner?b.pelapor:'Mahasiswa',ownerId:isOwner?b.ownerId:null,
+      verificationStatus:b.verificationStatus,
+      latitude:canSeePreciseLocation ? (b.latitude??null) : approximate(b.latitude),
+      longitude:canSeePreciseLocation ? (b.longitude??null) : approximate(b.longitude),
+      accuracy:canSeePreciseLocation ? (b.accuracy??null) : null,
+      alamat:canSeePreciseLocation ? (b.alamat||'') : '',
+      matchedReportId:b.matchedReportId??null,matchedAt:b.matchedAt??null,editedAt:b.editedAt??null,
+      locationPrecision:canSeePreciseLocation?'precise':'approximate'
+    };
+  };
   const validStr=(x,min=1,max=150)=>typeof x==='string'&&x.trim().length>=min&&x.trim().length<=max;
   const attempts=new Map();
   const handler=async (req,res)=>{
     res.setHeader('Content-Type','application/json; charset=utf-8');
     res.setHeader('Access-Control-Allow-Origin','*'); // development only: no browser cookies
     res.setHeader('Access-Control-Allow-Headers','Content-Type, Authorization');
-    res.setHeader('Access-Control-Allow-Methods','GET, POST, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods','GET, POST, PATCH, DELETE, OPTIONS');
     const send=(status,body)=>{res.statusCode=status;res.end(JSON.stringify(body));};
     if(req.method==='OPTIONS'){res.statusCode=204;res.end();return;}
     const url=new URL(req.url,'http://localhost');
-    if(req.method==='GET' && url.pathname==='/health')return send(200,{status:'ok',service:'TemuKampus Demo API'});
+    if(req.method==='GET' && url.pathname==='/health')return send(200,{status:'ok',service:'TemuBarang Demo API'});
     if(req.method==='GET' && url.pathname==='/test/error-500')return send(500,{message:'Terjadi kesalahan internal pada server (simulasi pengujian).'});
     if(req.method==='GET' && url.pathname.startsWith('/uploads/')){
       const cleanName = path.basename(url.pathname);
@@ -153,7 +201,7 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
       if(!validStr(name,2,100)||!validStr(email,5,120)||!email.includes('@')||!validStr(password,8,128))return send(400,{message:'Nama, email, atau password tidak valid (minimal 8 karakter).'});
       if(db.users.some(u=>u.email===email))return send(409,{message:'Akun sudah terdaftar.'});
       const id=Math.max(0,...db.users.map(u=>u.id))+1;
-      db.users.push({id,name,email,passwordHash:hashPassword(password)});save();
+      db.users.push({id,name,email,passwordHash:hashPassword(password),role:'user'});save();
       return send(201,{message:'Registrasi berhasil.',user:{id,name,email}});
     }
     if(req.method==='POST'&&url.pathname==='/auth/login'){
@@ -291,86 +339,154 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
     if(req.method==='GET'&&url.pathname==='/me')return send(200,{user:publicUser(auth.user)});
 
     if(req.method==='GET'&&url.pathname==='/barang'){
-      return send(200,{data:db.barang.slice().sort((a,b)=>b.id-a.id).map(publicBarang)});
+      return send(200,{data:db.barang.slice().sort((a,b)=>b.id-a.id).map(item=>publicBarang(item,auth.user.id))});
     }
     if(req.method==='POST'&&url.pathname==='/barang'){
       const jenisLaporan = body.jenisLaporan || body.status;
       const required=['nama','kategori','deskripsi','lokasi'];
-      if(required.some(k=>!validStr(body[k],1,k==='deskripsi'?600:130))||!['Hilang','Ditemukan'].includes(jenisLaporan)||!validStr(body.verificationSecret,4,100))return send(400,{message:'Lengkapi laporan, pilih jenis laporan, dan isi ciri rahasia barang (minimal 4 karakter).'});
+      if(required.some(k=>!validStr(body[k],1,k==='deskripsi'?600:130))||!['Hilang','Ditemukan'].includes(jenisLaporan)||(jenisLaporan==='Hilang'&&!validStr(body.verificationSecret,4,100)))return send(400,{message:'Lengkapi laporan dan pilih jenis laporan. Untuk laporan kehilangan, isi ciri rahasia minimal 4 karakter.'});
+      const hasLatitude = body.latitude !== null && body.latitude !== undefined && body.latitude !== '';
+      const hasLongitude = body.longitude !== null && body.longitude !== undefined && body.longitude !== '';
+      const latitude = hasLatitude ? Number(body.latitude) : null;
+      const longitude = hasLongitude ? Number(body.longitude) : null;
+      const accuracy = body.accuracy === null || body.accuracy === undefined || body.accuracy === '' ? null : Number(body.accuracy);
+      if (hasLatitude !== hasLongitude ||
+          (hasLatitude && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90)) ||
+          (hasLongitude && (!Number.isFinite(longitude) || longitude < -180 || longitude > 180)) ||
+          (accuracy !== null && (!Number.isFinite(accuracy) || accuracy < 0))) {
+        return send(400,{message:'Koordinat GPS atau akurasi lokasi tidak valid.'});
+      }
       const id=Math.max(0,...db.barang.map(b=>b.id))+1;
       const statusAwal = jenisLaporan === 'Hilang' ? 'Belum Ditemukan' : 'Menunggu Pemilik';
-      const b={id,nama:body.nama.trim(),kategori:body.kategori.trim(),deskripsi:body.deskripsi.trim(),lokasi:body.lokasi.trim(),tanggal:new Date().toISOString().slice(0,10),image:validStr(body.image,1,1000)?body.image:'',jenisLaporan,status:statusAwal,pelapor:auth.user.name,ownerId:auth.user.id,verificationStatus:'Belum diverifikasi',verificationSecret:body.verificationSecret.trim().toLocaleLowerCase('id')};
-      db.barang.push(b);save();return send(201,{data:publicBarang(b)});
+      const b={
+        id,nama:body.nama.trim(),kategori:body.kategori.trim(),deskripsi:body.deskripsi.trim(),lokasi:body.lokasi.trim(),
+        tanggal:new Date().toISOString().slice(0,10),image:validStr(body.image,1,1000)?body.image:'',
+        jenisLaporan,status:statusAwal,pelapor:auth.user.name,ownerId:auth.user.id,
+        verificationStatus:'Belum diverifikasi',
+        verificationSecretHash:jenisLaporan==='Hilang'?hashPassword(body.verificationSecret.trim().toLocaleLowerCase('id')):'',
+        latitude,longitude,accuracy,alamat:validStr(body.alamat,1,300)?body.alamat.trim():''
+      };
+      db.barang.push(b);save();return send(201,{data:publicBarang(b,auth.user.id)});
     }
-    const match=url.pathname.match(/^\/barang\/(\d+)(?:\/(verify|status))?$/);
+    const match=url.pathname.match(/^\/barang\/(\d+)(?:\/(claim|verify|status|report))?$/);
     if(match){
-      const b=db.barang.find(x=>x.id===Number(match[1]));
+      const itemId=Number(match[1]);
+      const action=match[2] || null;
+      const b=db.barang.find(x=>x.id===itemId);
       if(!b)return send(404,{message:'Barang tidak ditemukan.'});
-      if(req.method==='GET'&&!match[2])return send(200,{data:publicBarang(b)});
-      if(req.method==='POST'&&match[2]==='verify'){
-        if (b.status === 'Selesai Dikembalikan') return send(400,{message:'Laporan ini sudah selesai ditangani.'});
-        if (b.verificationStatus === 'Terverifikasi') return send(409,{message:'Ciri barang sudah diverifikasi dan sedang menunggu pengambilan.'});
-        const key=`verify:${auth.user.id}:${b.id}`,now=Date.now();
+      if(req.method==='GET'&&!action)return send(200,{data:publicBarang(b,auth.user.id)});
+
+      // Klaim barang temuan harus diverifikasi memakai rahasia pada laporan kehilangan milik pengklaim.
+      if(req.method==='POST'&&action==='claim'){
+        if(b.jenisLaporan!=='Ditemukan')return send(400,{message:'Klaim hanya dapat dilakukan pada laporan barang ditemukan.'});
+        if(b.ownerId===auth.user.id)return send(403,{message:'Pembuat laporan barang temuan tidak dapat mengklaim laporannya sendiri.'});
+        if(b.status!=='Menunggu Pemilik'||b.matchedReportId)return send(409,{message:'Barang temuan sudah diproses atau tidak tersedia untuk diklaim.'});
+        const lostReportId=Number(body.lostReportId);
+        const lostReport=db.barang.find(item=>item.id===lostReportId);
+        if(!lostReport||lostReport.jenisLaporan!=='Hilang')return send(404,{message:'Pilih laporan kehilangan milik Anda yang valid.'});
+        if(lostReport.ownerId!==auth.user.id)return send(403,{message:'Klaim harus menggunakan laporan kehilangan yang Anda buat sendiri.'});
+        if(lostReport.status!=='Belum Ditemukan'||lostReport.matchedReportId)return send(409,{message:'Laporan kehilangan sudah dipasangkan atau tidak lagi aktif.'});
+        if(lostReport.id===b.id)return send(400,{message:'Laporan tidak dapat dipasangkan dengan dirinya sendiri.'});
+        const key=`claim:${auth.user.id}:${b.id}`,now=Date.now();
         const recent=(attempts.get(key)||[]).filter(t=>now-t<15*60*1000);
-        if(recent.length>=5)return send(429,{message:'Batas percobaan verifikasi tercapai.'});
+        if(recent.length>=5)return send(429,{message:'Batas percobaan klaim tercapai. Coba lagi 15 menit kemudian.'});
         recent.push(now);attempts.set(key,recent);
-        if(!validStr(body.jawaban,1,100)||!timingEqual(body.jawaban.trim().toLocaleLowerCase('id'),b.verificationSecret))return send(400,{message:'Verifikasi belum berhasil. Periksa kembali ciri khusus.'});
+        const answer=typeof body.jawaban==='string'?body.jawaban.trim().toLocaleLowerCase('id'):'';
+        if(!answer||!verifyPassword(answer,lostReport.verificationSecretHash))return send(400,{message:'Ciri rahasia tidak cocok dengan laporan kehilangan Anda.'});
+        const matchedAt=new Date().toISOString();
+        b.status='Menunggu Pengambilan';
         b.verificationStatus='Terverifikasi';
-        if (b.status !== 'Selesai Dikembalikan') b.status='Menunggu Pengambilan';
-        save();return send(200,{data:publicBarang(b),message:'Verifikasi berhasil. Barang menunggu konfirmasi pengambilan dari pelapor.'});
+        b.matchedReportId=lostReport.id;
+        b.matchedAt=matchedAt;
+        lostReport.status='Menunggu Pengambilan';
+        lostReport.verificationStatus='Terverifikasi';
+        lostReport.matchedReportId=b.id;
+        lostReport.matchedAt=matchedAt;
+        save();
+        return send(200,{
+          foundItem:publicBarang(b,auth.user.id),
+          lostItem:publicBarang(lostReport,auth.user.id),
+          message:'Klaim berhasil diverifikasi. Laporan kehilangan dan temuan telah dipasangkan; lanjutkan koordinasi pengambilan dengan petugas kampus.'
+        });
       }
-      if(req.method==='PATCH'&&match[2]==='status'){
-        if(b.ownerId!==auth.user.id)return send(403,{message:'Hanya pembuat laporan yang dapat memperbarui status.'});
-        const targetStatus = body.status;
-        if(['Selesai Dikembalikan','Dikembalikan'].includes(targetStatus)){
-          if(b.verificationStatus!=='Terverifikasi')return send(400,{message:'Barang harus terverifikasi sebelum status penanganan diselesaikan.'});
-          b.status='Selesai Dikembalikan';
-        } else if(targetStatus === 'Belum Terselesaikan'){
-          b.status='Belum Terselesaikan';
-        } else if(targetStatus === 'Menunggu Pengambilan'){
-          if(b.verificationStatus!=='Terverifikasi')return send(400,{message:'Barang harus terverifikasi sebelum menunggu pengambilan.'});
-          b.status='Menunggu Pengambilan';
-        } else if(targetStatus === 'Menunggu Verifikasi'){
-          b.status = b.jenisLaporan === 'Hilang' ? 'Belum Ditemukan' : 'Menunggu Pemilik';
-        } else if(['Belum Ditemukan','Menunggu Pemilik'].includes(targetStatus)){
-          b.status = targetStatus;
-        } else {
-          return send(400,{message:`Status "${targetStatus}" tidak valid.`});
+
+      // Endpoint lama dinonaktifkan agar pengguna tidak dapat memverifikasi rahasia pada laporan miliknya sendiri.
+      if(req.method==='POST'&&action==='verify'){
+        return send(410,{message:'Alur verifikasi lama sudah dinonaktifkan. Gunakan fitur Klaim Barang pada laporan temuan.'});
+      }
+
+      if(req.method==='PATCH'&&action==='status'){
+        if(b.ownerId!==auth.user.id)return send(403,{message:'Hanya pemilik laporan kehilangan yang dapat mengonfirmasi pengembalian.'});
+        if(b.jenisLaporan!=='Hilang'||b.status!=='Menunggu Pengambilan'||b.verificationStatus!=='Terverifikasi'){
+          return send(400,{message:'Laporan kehilangan harus berhasil dipasangkan dan menunggu pengambilan sebelum diselesaikan.'});
+        }
+        const paired=b.matchedReportId?db.barang.find(item=>item.id===b.matchedReportId):null;
+        if(!paired||paired.matchedReportId!==b.id)return send(409,{message:'Laporan belum memiliki pasangan klaim yang valid. Selesaikan proses klaim terlebih dahulu.'});
+        b.status='Selesai Dikembalikan';
+        b.returnedAt=new Date().toISOString();
+        paired.status='Selesai Dikembalikan';paired.returnedAt=b.returnedAt;
+        save();
+        return send(200,{data:publicBarang(b,auth.user.id),pairedItem:paired?publicBarang(paired,auth.user.id):null});
+      }
+
+      if(req.method==='PATCH'&&!action){
+        if(b.ownerId!==auth.user.id)return send(403,{message:'Hanya pembuat laporan yang dapat mengubah laporannya.'});
+        if(b.status==='Selesai Dikembalikan'||b.matchedReportId)return send(409,{message:'Laporan yang sudah dipasangkan atau selesai tidak dapat diedit.'});
+        const required=['nama','kategori','deskripsi','lokasi'];
+        if(required.some(k=>!validStr(body[k],1,k==='deskripsi'?600:130)))return send(400,{message:'Nama, kategori, deskripsi, dan lokasi wajib diisi.'});
+        const hasLatitude=body.latitude!==null&&body.latitude!==undefined&&body.latitude!=='';
+        const hasLongitude=body.longitude!==null&&body.longitude!==undefined&&body.longitude!=='';
+        const latitude=hasLatitude?Number(body.latitude):null;
+        const longitude=hasLongitude?Number(body.longitude):null;
+        const accuracy=body.accuracy===null||body.accuracy===undefined||body.accuracy===''?null:Number(body.accuracy);
+        if(hasLatitude!==hasLongitude||(hasLatitude&&(!Number.isFinite(latitude)||latitude < -90||latitude > 90))||(hasLongitude&&(!Number.isFinite(longitude)||longitude < -180||longitude > 180))||(accuracy!==null&&(!Number.isFinite(accuracy)||accuracy<0))){
+          return send(400,{message:'Koordinat GPS atau akurasi lokasi tidak valid.'});
+        }
+        if(body.verificationSecret!==undefined&&body.verificationSecret!==''){
+          if(b.jenisLaporan!=='Hilang'||!validStr(body.verificationSecret,4,100))return send(400,{message:'Ciri rahasia hanya dapat diatur pada laporan kehilangan dan harus minimal 4 karakter.'});
+          b.verificationSecretHash=hashPassword(body.verificationSecret.trim().toLocaleLowerCase('id'));
+        }
+        b.nama=body.nama.trim();
+        b.kategori=body.kategori.trim();
+        b.deskripsi=body.deskripsi.trim();
+        b.lokasi=body.lokasi.trim();
+        b.image=validStr(body.image,1,1000)?body.image:'';
+        b.latitude=latitude;b.longitude=longitude;b.accuracy=accuracy;
+        b.alamat=validStr(body.alamat,1,300)?body.alamat.trim():'';
+        b.editedAt=new Date().toISOString();
+        save();
+        return send(200,{data:publicBarang(b,auth.user.id)});
+      }
+
+      if(req.method==='DELETE'&&!action){
+        if(b.ownerId!==auth.user.id)return send(403,{message:'Hanya pembuat laporan yang dapat menghapus laporannya.'});
+        if(b.matchedReportId||b.status==='Selesai Dikembalikan')return send(409,{message:'Laporan yang sudah dipasangkan atau selesai tidak dapat dihapus.'});
+        const index=db.barang.findIndex(item=>item.id===b.id);
+        db.barang.splice(index,1);
+        if(typeof b.image==='string'&&b.image.includes('/uploads/')){
+          const fileName=path.basename(b.image.split('?')[0]);
+          const filePath=path.join(uploadsDir,fileName);
+          try { if(fs.existsSync(filePath))fs.unlinkSync(filePath); } catch { /* File gambar yatim tidak boleh menggagalkan penghapusan laporan. */ }
         }
         save();
-        return send(200,{data:publicBarang(b),message:`Status laporan berhasil diperbarui menjadi ${b.status}.`});
+        return send(200,{message:'Laporan berhasil dihapus.',id:b.id});
       }
-      if(req.method==='PATCH'&&!match[2]){
-        if(b.ownerId!==auth.user.id)return send(403,{message:'Hanya pembuat laporan yang dapat memperbarui informasi barang.'});
-        if(body.nama!==undefined){
-          if(!validStr(body.nama,2,80))return send(400,{message:'Nama barang harus 2-80 karakter.'});
-          b.nama=body.nama.trim();
-        }
-        if(body.lokasi!==undefined){
-          if(!validStr(body.lokasi,2,100))return send(400,{message:'Lokasi harus 2-100 karakter.'});
-          b.lokasi=body.lokasi.trim();
-        }
-        if(body.deskripsi!==undefined){
-          if(!validStr(body.deskripsi,3,500))return send(400,{message:'Deskripsi harus 3-500 karakter.'});
-          b.deskripsi=body.deskripsi.trim();
-        }
-        if(body.kategori!==undefined){
-          if(!categories.includes(body.kategori))return send(400,{message:'Kategori tidak valid.'});
-          b.kategori=body.kategori;
-        }
-        if(body.status!==undefined){
-          const targetStatus = body.status;
-          if(['Selesai Dikembalikan','Dikembalikan'].includes(targetStatus)){
-            if(b.verificationStatus!=='Terverifikasi')return send(400,{message:'Barang harus terverifikasi sebelum status penanganan diselesaikan.'});
-            b.status='Selesai Dikembalikan';
-          } else if(targetStatus === 'Belum Terselesaikan'){
-            b.status='Belum Terselesaikan';
-          } else if(['Belum Ditemukan','Menunggu Pemilik','Menunggu Pengambilan'].includes(targetStatus)){
-            b.status=targetStatus;
-          }
-        }
-        save();
-        return send(200,{data:publicBarang(b),message:'Informasi laporan barang berhasil diperbarui.'});
+
+      if(req.method==='POST'&&action==='report'){
+        const allowedReasons=['Informasi palsu','Foto tidak sesuai','Duplikasi laporan','Konten tidak pantas','Lainnya'];
+        const reason=typeof body.reason==='string'?body.reason.trim():'';
+        if(!allowedReasons.includes(reason))return send(400,{message:'Pilih alasan laporan yang tersedia.'});
+        if(b.ownerId===auth.user.id)return send(400,{message:'Anda tidak dapat melaporkan laporan milik sendiri.'});
+        const alreadyReported=db.moderationReports.some(entry=>entry.itemId===b.id&&entry.reporterId===auth.user.id);
+        if(alreadyReported)return send(409,{message:'Anda sudah mengirim laporan untuk barang ini.'});
+        const moderationReport={
+          id:Math.max(0,...db.moderationReports.map(entry=>Number(entry.id)||0))+1,
+          itemId:b.id,reporterId:auth.user.id,reason,
+          description:validStr(body.description,1,300)?body.description.trim():'',
+          status:'Menunggu Tinjauan',createdAt:new Date().toISOString()
+        };
+        db.moderationReports.push(moderationReport);save();
+        return send(201,{message:'Laporan penyalahgunaan berhasil dikirim untuk ditinjau.',report:{id:moderationReport.id,status:moderationReport.status}});
       }
     }
     return send(404,{message:'Endpoint tidak ditemukan.'});
@@ -379,6 +495,6 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
 }
 if(require.main===module){
   const port=Number(process.env.PORT||4000);
-  createApp().listen(port,'0.0.0.0',()=>console.log(`TemuKampus API siap di port ${port} (LAN; HTTPS wajib untuk deployment publik)`));
+  createApp().listen(port,'0.0.0.0',()=>console.log(`TemuBarang API siap di port ${port} (LAN; HTTPS wajib untuk deployment publik)`));
 }
 module.exports={createApp};

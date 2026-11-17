@@ -1,5 +1,5 @@
 {
-  "name": "temukampus",
+  "name": "temubarang",
   "main": "node_modules/expo/AppEntry.js",
   "version": "1.0.0",
   "dependencies": {
@@ -32,7 +32,9 @@
     "react-native-safe-area-context": "~5.10.1",
     "react-native-screens": "~4.30.0",
     "react-native-web": "^0.21.4",
-    "react-native-worklets": "0.13.0"
+    "react-native-worklets": "0.13.0",
+    "expo-location": "~58.0.22",
+    "react-native-maps": "1.29.11"
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
@@ -48,7 +50,10 @@
     "test:api": "node --test server/server.test.js",
     "test:week7": "node --test tests/week7.motion.test.mjs",
     "server": "node server/server.js",
-    "test:week8": "node --test tests/week8.barangAsync.test.mjs"
+    "test:week9": "node --test tests/week9.barangAsync.test.mjs",
+    "test:week10": "node --test tests/week10.location.test.mjs",
+    "test:matching": "node --test tests/barangMatching.test.mjs",
+    "test:all": "npm run test:matching && npm run test:week7 && npm run test:week9 && npm run test:week10 && npm run test:api"
   },
   "private": true
 }

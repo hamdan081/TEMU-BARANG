@@ -1,5 +1,5 @@
 /**
- * TemuKampus All-in-One Dev Runner
+ * TemuBarang All-in-One Dev Runner
  * Menjalankan Server Backend (port 4000) dan Expo Metro Bundler bersamaan dalam 1 terminal.
  * Mendeteksi IP Wi-Fi laptop secara otomatis dan menyinkronkan file .env.
  */
@@ -31,7 +31,7 @@ function getLocalIp() {
 const localIp = getLocalIp();
 const apiUrl = `http://${localIp}:4000`;
 console.log('='.repeat(60));
-console.log('🚀 TemuKampus All-in-One Dev Runner');
+console.log('🚀 TemuBarang All-in-One Dev Runner');
 console.log(`📡 IP Wi-Fi Terdeteksi: ${localIp}`);
 console.log(`🌐 Server Backend API : ${apiUrl}`);
 console.log('='.repeat(60));
@@ -64,7 +64,7 @@ const expo = spawn(expoCmd, ['expo', 'start'], {
 });
 
 function cleanup() {
-  console.log('\n🛑 Menghentikan seluruh proses TemuKampus...');
+  console.log('\n🛑 Menghentikan seluruh proses TemuBarang...');
   try { server.kill(); } catch {}
   try { expo.kill(); } catch {}
   process.exit();

@@ -1,17 +1,25 @@
-PROMPT GITHUB — WEEK 7 TASK 03 (SENSOR INTERACTION)
+PROMPT GITHUB — WEEK 7 TASK 03: SENSOR INTERACTION
 
-Bertindak sebagai developer React Native + Expo dan Git specialist. Task 01 dan Task 02 Week 7 sudah ter-commit pada branch aktif repository TemuKampus. Terapkan HANYA Task 03 dari `week7-task3.patch`.
+Anda bertindak sebagai React Native + Expo Developer yang mengerjakan Task 03 Week 7 pada aplikasi TemuBarang.
 
-Target Task 03: tambahkan deteksi gerakan perangkat dengan threshold perubahan percepatan sebesar 0,85 g, cooldown 2 detik, getaran ponsel 300 ms ketika gerakan terdeteksi, pesan status "Goyang Terdeteksi!" di UI, dan penghitung deteksi. Buat kode utilitas yang dapat diuji, gunakan listener sensor yang sudah ada (jangan membuat listener ganda), bersihkan timer ketika halaman ditutup, dan tetap aman jika sensor tidak tersedia. File terkait: `utils/shakeMotion.mjs`, `hooks/useShakeDetection.js`, `components/sensors/SensorInteraction.js`, `components/sensors/SensorScreen.js`, `tests/week7.motion.test.mjs`, `package.json`, `docs/week7/task3.md`, dan `README.md`. Patch ini juga menyertakan tiga prompt GitHub di `docs/week7`.
+Repository: https://github.com/hamdan081/TEMU-BARANG
+Branch yang disarankan: week7/anggota-3-sensor-interaction
 
-Prosedur Git yang diminta:
-1. Pastikan commit Task 02 ada dan working tree bersih.
-2. Jalankan `git apply --check week7-task3.patch` lalu `git apply week7-task3.patch` dari root repo.
-3. Jalankan `npm run test:week7`; verifikasi hasil lulus. Jika ada ponsel, demo nilai sensor, goyangan, perubahan status, dan getaran fisik.
-4. Periksa `git diff --check` dan pastikan tidak ada file pribadi atau `node_modules/` yang di-stage.
-5. Stage file Task 03: `git add utils/shakeMotion.mjs hooks/useShakeDetection.js components/sensors/SensorInteraction.js components/sensors/SensorScreen.js tests/week7.motion.test.mjs package.json docs/week7/task3.md docs/week7/github-task1.txt docs/week7/github-task2.txt docs/week7/github-task3.txt README.md`.
-6. Jalankan `git commit -m "feat(week7-task3): add shake detection and vibration feedback"`.
-7. Pastikan remote `origin` benar lalu jalankan `git push -u origin HEAD`, tanpa force-push.
-8. Laporkan SHA commit, branch, status push, dan hasil tes yang sungguh dijalankan.
+Ruang lingkup:
+1. Integrasikan deteksi perubahan gerakan berdasarkan sampel Accelerometer yang sudah tersedia.
+2. Gunakan threshold dan cooldown yang jelas untuk mencegah alarm berulang.
+3. Berikan feedback getar pada perangkat yang mendukung.
+4. Tampilkan status dan jumlah deteksi gerakan pada UI Pengaman Meja.
+5. Bersihkan timer saat hook dilepas dan jangan membuat listener Accelerometer ganda.
+6. Jelaskan bahwa sensor mendeteksi gerakan perangkat, bukan identitas orang yang menggerakkannya.
 
-Jangan mengubah file Week 1–6 dan jangan mengklaim pengujian sensor ponsel selesai jika hanya menjalankan unit test.
+File utama: utils/shakeMotion.mjs, hooks/useShakeDetection.js, components/sensors/SensorInteraction.js, tests/week7.motion.test.mjs.
+
+Git workflow:
+- Pastikan PR Task 01 dan Task 02 sudah di-merge.
+- Tarik main terbaru, buat branch, lalu kerjakan hanya interaksi sensor.
+- Jalankan npm run test:week7 dan lakukan uji perangkat jika tersedia.
+- Commit: feat(week7): add shake detection and vibration feedback
+- Push branch dan buat Pull Request ke main; jangan force-push.
+
+Laporkan file yang diubah, hasil test yang benar-benar dijalankan, commit SHA, branch, dan URL Pull Request. Jangan mengklaim pengujian getar fisik jika belum dilakukan.

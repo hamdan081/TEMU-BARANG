@@ -1,6 +1,6 @@
 # Week 5 Task 03 — Refresh Token & Protect the Session (Session Management)
 
-**Aplikasi:** TemuKampus (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
+**Aplikasi:** TemuBarang (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
 **Tanggung Jawab:** Anggota Ketiga (Senior React Native Developer, Node.js Backend Developer, JWT Authentication Specialist, dan Git Specialist)  
 **Fokus Utama:** Mengimplementasikan siklus hidup sesi lengkap dengan **Refresh Token**, pembaruan Access Token otomatis (*token rotation*), proteksi endpoint REST API, validasi sesi online saat boot, serta mekanisme **Logout & Pencabutan Token (Token Revocation)** di server dan penghapusan token lokal pada Expo SecureStore.
 
@@ -8,7 +8,7 @@
 
 ## 1. Arsitektur Token: Access Token vs Refresh Token
 
-Aplikasi TemuKampus menerapkan arsitektur autentikasi ganda (*dual-token pattern*) berbasis standar kriptografi industri untuk mengamankan data mahasiswa:
+Aplikasi TemuBarang menerapkan arsitektur autentikasi ganda (*dual-token pattern*) berbasis standar kriptografi industri untuk mengamankan data mahasiswa:
 
 | Parameter | Access Token | Refresh Token |
 |---|---|---|
@@ -324,22 +324,22 @@ node --test server/server.test.js
 
 ## 8. Ringkasan File yang Dimodifikasi
 
-1. [`server/server.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/server/server.js):
+1. [`server/server.js`](../../server/server.js):
    - Menambahkan penerbitan `refresh_token` (7 hari) bertipe `refresh` pada `POST /auth/login`.
    - Mengimplementasikan endpoint `POST /auth/refresh` dengan token rotation dan revocation jti.
    - Mengimplementasikan endpoint `POST /auth/logout` yang mencabut kedua token di server.
    - Menambahkan helper `decodeToken()` dan membedakan validasi tipe token `access` vs `refresh`.
-2. [`server/server.test.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/server/server.test.js):
+2. [`server/server.test.js`](../../server/server.test.js):
    - Menambahkan test suite komprehensif untuk Week 5 Task 03 mencakup siklus refresh token, token rotation, type enforcement, expired token, dan logout revocation.
-3. [`services/api.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/services/api.js):
+3. [`services/api.js`](../../services/api.js):
    - Menambahkan fungsi `refreshAccessToken()` dengan concurrency lock.
    - Menambahkan auto-retry pada error 401 untuk request idempotent (`GET`).
    - Memperbarui `logoutAPI()` agar mengirimkan refresh token ke backend.
-4. [`storage/session.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/storage/session.js):
+4. [`storage/session.js`](../../storage/session.js):
    - Menambahkan penyimpanan `refresh_token` di hardware SecureStore melalui `saveSession` & `saveTokens`.
    - Menambahkan helper `getRefreshToken()` dan memastikan `clearSession()` menghapus kedua token dari SecureStore.
-5. [`App.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/App.js):
+5. [`App.js`](../../App.js):
    - Menambahkan tombol interaktif "Simulasi Refresh Token" di halaman Profil untuk demonstrasi pengujian dosen.
    - Mengintegrasikan penyimpanan refresh token saat login dan pembersihan total saat logout.
-6. [`docs/week5/task3.md`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/docs/week5/task3.md):
+6. [`docs/week5/task3.md`](task3.md):
    - Dokumentasi lengkap Week 5 Task 03 mencakup arsitektur, kode, penyesuaian catatan dosen, dan bukti pengujian.

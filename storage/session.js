@@ -8,7 +8,7 @@ const PREF_KEY = 'temukampus_preferences';
 const API_URL_KEY = 'temukampus_custom_api_url';
 
 /**
- * Week 5 Task 01 & Task 03:
+ * Week 3 (Local Data Security) & Week 5 (Token Authentication):
  * Token sensitif (access_token & refresh_token) HANYA disimpan melalui Expo SecureStore.
  * AsyncStorage DILARANG untuk menyimpan token, hanya digunakan untuk profil & preferensi UI.
  */

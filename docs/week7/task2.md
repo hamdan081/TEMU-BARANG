@@ -1,6 +1,6 @@
 # Week 7 Task 02 — Display Sensor Data
 
-Tujuan: menampilkan nilai accelerometer **X, Y, Z secara real-time** di halaman TemuKampus.
+Tujuan: menampilkan nilai accelerometer **X, Y, Z secara real-time** di halaman TemuBarang.
 
 ## Implementasi
 

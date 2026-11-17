@@ -4,6 +4,9 @@
 import React from 'react';
 import {Platform,Pressable,StyleSheet,Text,View} from 'react-native';
 import useAccelerometer, {GRAVITY_MS2} from '../../hooks/useAccelerometer';
+import SensorDashboard from './SensorDashboard';
+import SensorInteraction from './SensorInteraction';
+import { theme } from '../../theme';
 
 const toMS2=val=>val!==undefined&&val!==null?(val*GRAVITY_MS2).toFixed(2):'—';
 
@@ -15,7 +18,7 @@ export default function SensorScreen({onReportLost}){
    <Text style={styles.badge}>🛡️ Mode Keamanan Kampus</Text>
    <Text style={styles.title} accessibilityRole="header">Pengaman Meja & Sensor Gerak</Text>
    <Text style={styles.description}>
-    Cegah kehilangan barang saat ditinggal sebentar di meja perpustakaan atau kantin. Letakkan ponsel di atas laptop/tas Anda. Accelerometer memantau stabilitas meja secara real-time dan memicu alarm getar jika barang digeser atau diangkat orang lain.
+    Bantu memantau perubahan gerakan saat barang diletakkan di meja perpustakaan atau kantin. Accelerometer membaca gerakan perangkat dan memberi peringatan getar ketika perubahan percepatan melewati ambang. Sensor tidak dapat memastikan siapa yang menggerakkan barang.
    </Text>
   </View>
 
@@ -74,34 +77,37 @@ export default function SensorScreen({onReportLost}){
 
    {Platform.OS==='web'&&<Text style={styles.note}>Browser dapat membatasi sensor atau membutuhkan HTTPS dan izin gerakan.</Text>}
   </View>
+
+  <SensorDashboard sample={sample} active={active}/>
+  <SensorInteraction sample={sample} active={active} onReportLost={onReportLost}/>
  </View>;
 }
 
 const styles=StyleSheet.create({
- container:{paddingBottom:24,gap:14},
- bannerHeader:{backgroundColor:'#F0FDF4',borderColor:'#BBF7D0',borderWidth:1,borderRadius:16,padding:16,gap:6},
- badge:{alignSelf:'flex-start',backgroundColor:'#DCFCE7',color:'#15803D',fontWeight:'800',fontSize:12,paddingHorizontal:9,paddingVertical:3,borderRadius:12},
- title:{fontSize:22,fontWeight:'900',color:'#14532D'},
- description:{color:'#334155',fontSize:13,lineHeight:20},
- panel:{backgroundColor:'#FFF',borderColor:'#DCE6F2',borderWidth:1,borderRadius:16,padding:17,gap:10},
- panelHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},
- subtitle:{fontSize:16,fontWeight:'800',color:'#15335A'},
- taskBadge:{fontSize:11,fontWeight:'700',color:'#2563EB',backgroundColor:'#EFF6FF',paddingHorizontal:8,paddingVertical:2,borderRadius:6},
+ container:{paddingBottom:26,gap:12},
+ bannerHeader:{backgroundColor:'#EAF4FF',borderColor:'#D7E7F9',borderWidth:1,borderRadius:19,padding:17,gap:7},
+ badge:{alignSelf:'flex-start',backgroundColor:'#FFFFFF',color:theme.colors.primary,fontWeight:'900',fontSize:10,paddingHorizontal:10,paddingVertical:6,borderRadius:9},
+ title:{fontSize:21,fontWeight:'900',color:'#1B4779',letterSpacing:-0.45},
+ description:{color:'#536B86',fontSize:11,lineHeight:18},
+ panel:{backgroundColor:'#FFFFFF',borderColor:theme.colors.border,borderWidth:1,borderRadius:18,padding:16,gap:10,...theme.shadow.card},
+ panelHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:8},
+ subtitle:{fontSize:14,fontWeight:'900',color:theme.colors.text},
+ taskBadge:{fontSize:10,fontWeight:'800',color:theme.colors.primary,backgroundColor:theme.colors.primarySoft,paddingHorizontal:9,paddingVertical:6,borderRadius:8},
  stateRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:6},
- state:{fontSize:14,fontWeight:'800'},
- stateActive:{color:'#166534'},
- stateInactive:{color:'#64748B'},
- note:{fontSize:12,lineHeight:19,color:'#64748B'},
- action:{backgroundColor:'#1565C0',minHeight:48,padding:12,borderRadius:12,alignItems:'center',justifyContent:'center'},
- actionStop:{backgroundColor:'#B91C1C'},
- actionText:{color:'white',fontWeight:'800',fontSize:15},
- error:{color:'#9F1239',backgroundColor:'#FFF1F2',padding:11,borderRadius:10,lineHeight:20},
- readingsRow:{flexDirection:'row',gap:8,marginTop:4},
- readingCard:{flex:1,backgroundColor:'#F8FAFC',borderRadius:10,borderWidth:1,borderColor:'#E2E8F0',alignItems:'center',paddingVertical:8},
- readingLabel:{fontSize:12,fontWeight:'800',color:'#64748B'},
- readingVal:{fontSize:16,fontWeight:'800',color:'#1E293B',marginVertical:2},
- readingUnit:{fontSize:10,color:'#94A3B8'},
- tipBox:{backgroundColor:'#F8FAFC',borderRadius:10,padding:10,borderWidth:1,borderColor:'#E2E8F0'},
- tipTitle:{fontSize:12,fontWeight:'800',color:'#1E293B',marginBottom:3},
- tipText:{fontSize:11,lineHeight:18,color:'#475569'}
+ state:{fontSize:11,fontWeight:'900'},
+ stateActive:{color:theme.colors.success},
+ stateInactive:{color:'#8794A6'},
+ note:{fontSize:10,lineHeight:17,color:'#7A889B'},
+ action:{backgroundColor:theme.colors.primary,minHeight:49,padding:12,borderRadius:13,alignItems:'center',justifyContent:'center'},
+ actionStop:{backgroundColor:theme.colors.danger},
+ actionText:{color:'white',fontWeight:'900',fontSize:13},
+ error:{color:theme.colors.danger,backgroundColor:theme.colors.dangerSoft,padding:11,borderRadius:11,lineHeight:18,fontSize:11},
+ readingsRow:{flexDirection:'row',gap:8,marginTop:3},
+ readingCard:{flex:1,backgroundColor:'#F7F9FC',borderRadius:13,borderWidth:1,borderColor:'#E8EDF4',alignItems:'center',paddingVertical:11,paddingHorizontal:4},
+ readingLabel:{fontSize:11,fontWeight:'900',color:'#8290A3'},
+ readingVal:{fontSize:17,fontWeight:'900',color:theme.colors.text,marginVertical:3},
+ readingUnit:{fontSize:9,color:'#9AA6B5'},
+ tipBox:{backgroundColor:'#F7F9FC',borderRadius:13,padding:12,borderWidth:1,borderColor:'#E8EDF4'},
+ tipTitle:{fontSize:11,fontWeight:'900',color:'#34445A',marginBottom:4},
+ tipText:{fontSize:10,lineHeight:17,color:'#64748B'}
 });
