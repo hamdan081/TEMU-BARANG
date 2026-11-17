@@ -166,3 +166,9 @@ Implementasi model di [`models/Barang.js`](file:///c:/A%20PENTING/TUGAS%20SEMEST
 
 - **Tugas yang diselesaikan:** Week 4 Task 01 — Model The Data.
 - **Tugas berikutnya:** Week 4 Task 02 — Connect to REST API (akan dilanjutkan oleh Orang 2: integrasi fetch HTTP, parsing JSON, mapping DTO di `services/api.js`).
+
+---
+
+## Addendum Week 8 — pemisahan jenis laporan dan status penanganan
+
+Pada pengembangan Week 8, field `status` diperjelas agar tidak mencampur jenis laporan dengan perkembangan penanganan. Field `jenisLaporan` sekarang berisi `Hilang` atau `Ditemukan`, sedangkan `status` berisi `Belum Ditemukan`, `Menunggu Pemilik`, `Menunggu Pengambilan`, atau `Selesai Dikembalikan`. Contoh JSON di bagian atas dokumen ini merupakan contoh struktur sebelum penyesuaian Week 8; struktur aktif dapat dilihat pada `models/Barang.js` dan `README.md`.

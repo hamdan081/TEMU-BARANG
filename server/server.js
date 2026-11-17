@@ -1,5 +1,5 @@
 /** TemuKampus classroom API. Node.js built-ins only; no external database required.
- * Development server for Week 4 (REST + DTO) and Week 5 (real server-issued tokens).
+ * Development server for Week 4–5 (REST + DTO + JWT) and Week 8 (async report lifecycle).
  * Production requires HTTPS, proper deployment/security reviews, and persistent database.
  */
 const http = require('node:http');
@@ -9,11 +9,30 @@ const crypto = require('node:crypto');
 const multer = require('multer');
 
 const initialBarang = [
-  {id:1,nama:'Dompet Hitam',kategori:'Aksesoris',deskripsi:'Dompet hitam dengan jahitan di sudut kiri.',lokasi:'Gedung A',tanggal:'2026-10-12',image:'',status:'Hilang',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecret:'jahitan kiri'},
-  {id:2,nama:'Kunci Motor',kategori:'Aksesoris',deskripsi:'Kunci motor dengan gantungan berbentuk bintang.',lokasi:'Area Parkir',tanggal:'2026-10-13',image:'',status:'Ditemukan',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecret:'bintang'},
-  {id:3,nama:'Laptop ASUS',kategori:'Elektronik',deskripsi:'Laptop warna abu-abu ditemukan terakhir di perpustakaan.',lokasi:'Perpustakaan',tanggal:'2026-10-14',image:'',status:'Hilang',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecret:'asus'},
-  {id:4,nama:'Kartu Mahasiswa',kategori:'Dokumen',deskripsi:'Kartu mahasiswa ditemukan di dekat ruang kelas.',lokasi:'Gedung B',tanggal:'2026-10-15',image:'',status:'Ditemukan',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecret:'kampus'}
+  {id:1,nama:'Dompet Hitam',kategori:'Aksesoris',deskripsi:'Dompet hitam dengan jahitan di sudut kiri.',lokasi:'Gedung A',tanggal:'2026-10-12',image:'',jenisLaporan:'Hilang',status:'Belum Ditemukan',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecret:'jahitan kiri'},
+  {id:2,nama:'Kunci Motor',kategori:'Aksesoris',deskripsi:'Kunci motor dengan gantungan berbentuk bintang.',lokasi:'Area Parkir',tanggal:'2026-10-13',image:'',jenisLaporan:'Ditemukan',status:'Menunggu Pemilik',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecret:'bintang'},
+  {id:3,nama:'Laptop ASUS',kategori:'Elektronik',deskripsi:'Laptop warna abu-abu ditemukan terakhir di perpustakaan.',lokasi:'Perpustakaan',tanggal:'2026-10-14',image:'',jenisLaporan:'Hilang',status:'Belum Ditemukan',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecret:'asus'},
+  {id:4,nama:'Kartu Mahasiswa',kategori:'Dokumen',deskripsi:'Kartu mahasiswa ditemukan di dekat ruang kelas.',lokasi:'Gedung B',tanggal:'2026-10-15',image:'',jenisLaporan:'Ditemukan',status:'Menunggu Pemilik',pelapor:'Tim Kampus',ownerId:0,verificationStatus:'Belum diverifikasi',verificationSecret:'kampus'}
 ];
+
+const normalizeBarang = (item = {}) => {
+  const legacyStatus = String(item.status || '');
+  const jenisLaporan = ['Hilang', 'Ditemukan'].includes(item.jenisLaporan)
+    ? item.jenisLaporan
+    : legacyStatus === 'Ditemukan' ? 'Ditemukan' : 'Hilang';
+  let status = legacyStatus;
+  if (status === 'Hilang') status = 'Belum Ditemukan';
+  if (status === 'Ditemukan') status = 'Menunggu Pemilik';
+  if (status === 'Dikembalikan') status = 'Selesai Dikembalikan';
+  if (item.verificationStatus === 'Terverifikasi' && status !== 'Selesai Dikembalikan') {
+    status = 'Menunggu Pengambilan';
+  }
+  if (!['Belum Ditemukan', 'Menunggu Pemilik', 'Menunggu Pengambilan', 'Selesai Dikembalikan'].includes(status)) {
+    status = jenisLaporan === 'Hilang' ? 'Belum Ditemukan' : 'Menunggu Pemilik';
+  }
+  return { ...item, jenisLaporan, status };
+};
+
 const b64url = obj => Buffer.from(JSON.stringify(obj)).toString('base64url');
 const timingEqual = (a,b) => {
   const x=Buffer.from(a), y=Buffer.from(b);
@@ -62,6 +81,7 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
   if(!secret && !fs.existsSync(secretFile)) fs.writeFileSync(secretFile,signingSecret,{mode:0o600});
   const dbFile=path.join(dataDir,'database.json');
   let db=fs.existsSync(dbFile)?JSON.parse(fs.readFileSync(dbFile,'utf8')):{users:[],barang:initialBarang,revokedJtis:[]};
+  db.barang = (Array.isArray(db.barang) ? db.barang : initialBarang).map(normalizeBarang);
   if (!db.users.some(u=>u.email==='demo@kampus.ac.id')) {
     db.users.push({id:1,name:'Mahasiswa Demo',email:'demo@kampus.ac.id',passwordHash:hashPassword('Demo123!')});
   }
@@ -94,7 +114,7 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
     return user?{user,tokenData:data}:null;
   }
   const publicUser=u=>({id:u.id,name:u.name,email:u.email});
-  const publicBarang=b=>({id:b.id,nama:b.nama,kategori:b.kategori,deskripsi:b.deskripsi,lokasi:b.lokasi,tanggal:b.tanggal,image:b.image,status:b.status,pelapor:b.pelapor,ownerId:b.ownerId,verificationStatus:b.verificationStatus});
+  const publicBarang=b=>({id:b.id,nama:b.nama,kategori:b.kategori,deskripsi:b.deskripsi,lokasi:b.lokasi,tanggal:b.tanggal,image:b.image,jenisLaporan:b.jenisLaporan,status:b.status,pelapor:b.pelapor,ownerId:b.ownerId,verificationStatus:b.verificationStatus});
   const validStr=(x,min=1,max=150)=>typeof x==='string'&&x.trim().length>=min&&x.trim().length<=max;
   const attempts=new Map();
   const handler=async (req,res)=>{
@@ -271,10 +291,12 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
       return send(200,{data:db.barang.slice().sort((a,b)=>b.id-a.id).map(publicBarang)});
     }
     if(req.method==='POST'&&url.pathname==='/barang'){
-      const required=['nama','kategori','deskripsi','lokasi','status'];
-      if(required.some(k=>!validStr(body[k],1,k==='deskripsi'?600:130))||!['Hilang','Ditemukan'].includes(body.status)||!validStr(body.verificationSecret,4,100))return send(400,{message:'Lengkapi laporan dan ciri rahasia barang (minimal 4 karakter).'});
+      const jenisLaporan = body.jenisLaporan || body.status;
+      const required=['nama','kategori','deskripsi','lokasi'];
+      if(required.some(k=>!validStr(body[k],1,k==='deskripsi'?600:130))||!['Hilang','Ditemukan'].includes(jenisLaporan)||!validStr(body.verificationSecret,4,100))return send(400,{message:'Lengkapi laporan, pilih jenis laporan, dan isi ciri rahasia barang (minimal 4 karakter).'});
       const id=Math.max(0,...db.barang.map(b=>b.id))+1;
-      const b={id,nama:body.nama.trim(),kategori:body.kategori.trim(),deskripsi:body.deskripsi.trim(),lokasi:body.lokasi.trim(),tanggal:new Date().toISOString().slice(0,10),image:validStr(body.image,1,1000)?body.image:'',status:body.status,pelapor:auth.user.name,ownerId:auth.user.id,verificationStatus:'Belum diverifikasi',verificationSecret:body.verificationSecret.trim().toLocaleLowerCase('id')};
+      const statusAwal = jenisLaporan === 'Hilang' ? 'Belum Ditemukan' : 'Menunggu Pemilik';
+      const b={id,nama:body.nama.trim(),kategori:body.kategori.trim(),deskripsi:body.deskripsi.trim(),lokasi:body.lokasi.trim(),tanggal:new Date().toISOString().slice(0,10),image:validStr(body.image,1,1000)?body.image:'',jenisLaporan,status:statusAwal,pelapor:auth.user.name,ownerId:auth.user.id,verificationStatus:'Belum diverifikasi',verificationSecret:body.verificationSecret.trim().toLocaleLowerCase('id')};
       db.barang.push(b);save();return send(201,{data:publicBarang(b)});
     }
     const match=url.pathname.match(/^\/barang\/(\d+)(?:\/(verify|status))?$/);
@@ -283,17 +305,21 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
       if(!b)return send(404,{message:'Barang tidak ditemukan.'});
       if(req.method==='GET'&&!match[2])return send(200,{data:publicBarang(b)});
       if(req.method==='POST'&&match[2]==='verify'){
+        if (b.status === 'Selesai Dikembalikan') return send(400,{message:'Laporan ini sudah selesai ditangani.'});
+        if (b.verificationStatus === 'Terverifikasi') return send(409,{message:'Ciri barang sudah diverifikasi dan sedang menunggu pengambilan.'});
         const key=`verify:${auth.user.id}:${b.id}`,now=Date.now();
         const recent=(attempts.get(key)||[]).filter(t=>now-t<15*60*1000);
         if(recent.length>=5)return send(429,{message:'Batas percobaan verifikasi tercapai.'});
         recent.push(now);attempts.set(key,recent);
         if(!validStr(body.jawaban,1,100)||!timingEqual(body.jawaban.trim().toLocaleLowerCase('id'),b.verificationSecret))return send(400,{message:'Verifikasi belum berhasil. Periksa kembali ciri khusus.'});
-        b.verificationStatus='Terverifikasi';save();return send(200,{data:publicBarang(b),message:'Verifikasi berhasil. Hubungi pelapor untuk pengambilan.'});
+        b.verificationStatus='Terverifikasi';
+        if (b.status !== 'Selesai Dikembalikan') b.status='Menunggu Pengambilan';
+        save();return send(200,{data:publicBarang(b),message:'Verifikasi berhasil. Barang menunggu konfirmasi pengambilan dari pelapor.'});
       }
       if(req.method==='PATCH'&&match[2]==='status'){
         if(b.ownerId!==auth.user.id)return send(403,{message:'Hanya pembuat laporan yang dapat memperbarui status.'});
-        if(body.status!=='Dikembalikan'||b.verificationStatus!=='Terverifikasi')return send(400,{message:'Barang harus terverifikasi sebelum ditandai dikembalikan.'});
-        b.status='Dikembalikan';save();return send(200,{data:publicBarang(b)});
+        if(!['Selesai Dikembalikan','Dikembalikan'].includes(body.status)||b.verificationStatus!=='Terverifikasi')return send(400,{message:'Barang harus terverifikasi sebelum status penanganan diselesaikan.'});
+        b.status='Selesai Dikembalikan';save();return send(200,{data:publicBarang(b)});
       }
     }
     return send(404,{message:'Endpoint tidak ditemukan.'});

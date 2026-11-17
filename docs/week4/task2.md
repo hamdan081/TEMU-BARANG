@@ -214,3 +214,9 @@ node --test server/server.test.js
 ---
 
 Dikerjakan oleh: Anggota 2 | Week 4 Task 02 - Connect to REST API
+
+---
+
+## Addendum Week 8 — format status laporan terbaru
+
+Response `GET /barang` sekarang juga mengembalikan `jenisLaporan` (`Hilang` atau `Ditemukan`). Field `status` digunakan untuk status penanganan (`Belum Ditemukan`, `Menunggu Pemilik`, `Menunggu Pengambilan`, `Selesai Dikembalikan`). Contoh response sebelum addendum ini adalah format lama; lihat `docs/week8/task1.md` untuk kontrak API yang digunakan pada Week 8.

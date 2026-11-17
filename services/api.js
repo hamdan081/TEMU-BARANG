@@ -281,12 +281,28 @@ export const logoutAPI = async () => {
   });
 };
 
-// Week 4 & Week 5 Task 02: GET protected endpoint /barang dengan Bearer token -> DTO Barang -> UI.
+// Week 8: GET /barang mengambil daftar laporan barang hilang/temuan secara asynchronous.
+// Week 4 & Week 5 Task 02: respons dipetakan ke DTO Barang dan dilindungi Bearer token.
 export const fetchBarang = async () => {
   const response = await authenticatedFetch('/barang');
   if (!Array.isArray(response.data)) throw new ApiError('Format data API tidak sesuai.');
   return response.data.map(mapBarang);
 };
+
+// Week 9 Task 01 (anggota-1-get): GET daftar barang hilang — filter jenisLaporan === 'Hilang'.
+// Menggunakan fetchBarang() yang sudah ada agar tidak ada duplikasi request ke server.
+export const fetchBarangHilang = async () => {
+  const semua = await fetchBarang();
+  return semua.filter(item => item.jenisLaporan === 'Hilang');
+};
+
+// Week 9 Task 01 (anggota-1-get): GET daftar barang temuan — filter jenisLaporan === 'Ditemukan'.
+// Menggunakan fetchBarang() yang sudah ada agar tidak ada duplikasi request ke server.
+export const fetchBarangTemuan = async () => {
+  const semua = await fetchBarang();
+  return semua.filter(item => item.jenisLaporan === 'Ditemukan');
+};
+// Week 8: POST /barang menyimpan laporan barang hilang atau barang temuan.
 export const createBarang=async form=>{
  const response=await request('/barang',{method:'POST',authenticated:true,body:form});
  return mapBarang(response.data);
@@ -295,8 +311,9 @@ export const verifyBarang=async(id,jawaban)=>{
  const response=await request(`/barang/${id}/verify`,{method:'POST',authenticated:true,body:{jawaban}});
  return {item:mapBarang(response.data),message:response.message};
 };
+// Week 8: PATCH memperbarui status penanganan setelah verifikasi dan konfirmasi pelapor.
 export const markReturned=async id=>{
- const response=await request(`/barang/${id}/status`,{method:'PATCH',authenticated:true,body:{status:'Dikembalikan'}});
+ const response=await request(`/barang/${id}/status`,{method:'PATCH',authenticated:true,body:{status:'Selesai Dikembalikan'}});
  return mapBarang(response.data);
 };
 

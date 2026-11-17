@@ -1,39 +1,20 @@
-# Week 7 Task 02 — Real-time Table Stability Dashboard
+# Week 7 Task 02 — Display Sensor Data
 
-Modul visualisasi real-time stabilitas permukaan meja pada fitur "Jaga Meja" TemuKampus.
+Tujuan: menampilkan nilai accelerometer **X, Y, Z secara real-time** di halaman TemuKampus.
 
-## Tanggung Jawab Anggota 2
+## Implementasi
 
-1. **Komponen Visualisasi `SensorDashboard.js`**:
-   - Membangun antarmuka visual dengan judul *"Pemantau Stabilitas Meja (Real-time)"*.
-   - Menyediakan 3 kartu sumbu independen dengan kode warna:
-     - **Sumbu X**: Kiri - Kanan (`#DC2626` / Merah)
-     - **Sumbu Y**: Maju - Mundur (`#15803D` / Hijau)
-     - **Sumbu Z**: Gravitasi Vertikal (`#2563EB` / Biru)
-   - Nilai percepatan disajikan dalam satuan **m/s²** (dikonversi langsung dari data accelerometer hook `useAccelerometer` menggunakan konstanta gravitasi `9.80665 m/s²`).
+- `components/sensors/SensorDashboard.js` menampilkan tiga kartu data dengan warna berbeda: X (merah), Y (hijau), dan Z (biru).
+- Nilai dibaca langsung dari `useAccelerometer()` pada Task 01, bukan angka contoh atau respons REST API.
+- Setiap pembacaan mengubah `state` React Native sehingga UI ikut berubah otomatis.
+- Panel riwayat menggunakan 24 sampel terakhir sebagai grafik titik sederhana; rentang visual ±20 m/s² dan nilai di luar rentang dibatasi pada tepi grafik.
+- Saat sensor berhenti, riwayat dibersihkan dan tampilan menampilkan tanda `—`.
 
-2. **Grafik Riwayat Real-Time**:
-   - Menampilkan visualisasi riwayat **24 sampel terakhir** dalam bentuk chart titik responsif.
-   - Menggunakan rentang skala visual **±20 m/s²**.
-   - Memungkinkan pengguna membedakan:
-     - **Kondisi meja tenang**: Garis titik mendatar stabil pada gravitasi bumi (~9.8 m/s² pada sumbu Z, ~0 m/s² pada sumbu X & Y).
-     - **Kondisi meja terguncang / tersenggol**: Lonjakan titik ekstrem dan fluktuasi tajam pada sumbu X, Y, maupun Z.
+## Pengujian manual
 
-3. **Integrasi ke `SensorScreen.js`**:
-   - Menghubungkan `SensorDashboard` ke dalam alur kontrol `SensorScreen.js`.
-   - Menjamin riwayat sampel otomatis di-reset (`[]`) dan nilai sumbu kembali ke status kosong (`—`) saat sensor dinonaktifkan (`active = false`).
+1. Login, buka **Sensor**, lalu tekan **Mulai Sensor**.
+2. Perhatikan nilai X/Y/Z pada kartu; gerakkan dan putar perangkat untuk memastikan angka berubah.
+3. Perhatikan riwayat titik pada panel di bawah kartu. Tutup sensor; nilai dan grafik seharusnya ter-reset.
+4. Bandingkan output console Task 01 dengan nilai pada UI Task 02 (keduanya m/s²).
 
-## Panduan Pengujian Manual
-
-1. Buka aplikasi TemuKampus, navigasikan ke menu **Jaga Meja** (Tab Pengaman / Sensor).
-2. Tekan tombol **Aktifkan Pengaman Meja**.
-3. Letakkan ponsel di atas meja yang tenang:
-   - Amati sumbu Z stabil di kisaran `~9.8 m/s²`.
-   - Sumbu X dan Y berada di kisaran `~0.0 m/s²`.
-   - Grafik 24 sampel menunjukkan garis titik horizontal stabil.
-4. Goyangkan atau senggol meja/ponsel:
-   - Nilai sumbu X, Y, Z berubah dinamis secara instan.
-   - Grafik titik melonjak merefleksikan getaran.
-5. Tekan **Matikan Pengaman Meja**:
-   - Nilai pada kartu kembali menampilkan `—`.
-   - Riwayat grafik titik ter-reset dan menampilkan pesan panduan aktivasi.
+> Grafik adalah visualisasi tambahan agar perubahan real-time mudah diamati; target minimum pada materi ialah nilai X/Y/Z muncul di UI.

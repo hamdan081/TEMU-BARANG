@@ -5,7 +5,8 @@ const tabs=[
  ['home','⌂','Beranda'],
  ['list','☷','Daftar'],
  ['report','+','Lapor'],
- ['sensor','🛡️','Jaga Meja'],
+ ['followup','✓','Tindak Lanjut'],
+ ['sensor','🛡️','Sensor'],
  ['profile','♙','Profil']
 ];
 
@@ -31,8 +32,8 @@ export default function BottomNav({active,onSelect}){
 const styles=StyleSheet.create({
  base:{backgroundColor:'#fff',borderTopColor:'#E2E8F0',borderTopWidth:1},
  row:{maxWidth:860,width:'100%',alignSelf:'center',flexDirection:'row',justifyContent:'space-around'},
- tab:{flex:1,minHeight:58,alignItems:'center',justifyContent:'center',padding:3},
- icon:{fontSize:21,color:'#64748B'},
- label:{fontSize:11,color:'#64748B',marginTop:2},
+ tab:{flex:1,minHeight:58,alignItems:'center',justifyContent:'center',paddingHorizontal:2,paddingVertical:3},
+ icon:{fontSize:20,color:'#64748B'},
+ label:{fontSize:10,color:'#64748B',marginTop:2},
  selected:{color:'#1565C0',fontWeight:'800'}
 });
