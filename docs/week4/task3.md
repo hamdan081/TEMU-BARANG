@@ -166,3 +166,9 @@ npm run test:api
 ```
 
 Semua pengujian lolos (100% PASS).
+
+---
+
+## Addendum Week 8 — badge kartu barang
+
+Kartu barang saat ini menampilkan dua informasi terpisah: badge jenis laporan (`Barang Hilang` / `Barang Ditemukan`) dan badge status penanganan (`Belum Ditemukan`, `Menunggu Pemilik`, `Menunggu Pengambilan`, `Selesai Dikembalikan`). Implementasinya berada di `components/ItemCard.js`.

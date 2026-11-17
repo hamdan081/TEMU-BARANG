@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "ii",
-    "slug": "ii",
+    "name": "TemuKampus",
+    "slug": "temukampus",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "ii",
+    "scheme": "temukampus",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon"

@@ -232,3 +232,9 @@ node --test server/server.test.js
 
 - **Tugas yang diselesaikan:** Week 5 Task 02 — Attach Token to API Request.
 - **Tugas berikutnya:** Week 5 Task 03 — Handle Session & Logout (Session restoration saat app dibuka, logout online revokasi token di backend dan penghapusan token di SecureStore).
+
+---
+
+## Addendum Week 8 — status penanganan pada REST API
+
+Endpoint tetap menggunakan `GET /barang`, `POST /barang`, dan `PATCH /barang/:id/status`. Pada format aktif, `jenisLaporan` menunjukkan `Hilang` atau `Ditemukan`, sedangkan `status` menunjukkan proses penanganan. PATCH menetapkan status `Selesai Dikembalikan` setelah verifikasi berhasil dan pelapor mengonfirmasi barang telah diterima. Contoh payload lama pada bagian sebelumnya tetap dicatat sebagai materi awal; kontrak terbaru dijelaskan pada `docs/week8/task1.md`.

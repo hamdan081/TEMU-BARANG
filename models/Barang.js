@@ -1,22 +1,8 @@
 /**
- * Data Model & DTO Barang - TemuKampus
- * Week 4 Task 01: Model The Data
- * 
- * Resource: Barang
- * Field:
- * - id (Number): Pengenal unik barang
- * - nama (String): Nama atau judul barang
- * - kategori (String): Kategori barang (Elektronik, Dokumen, Pakaian, Aksesoris, Perlengkapan, Lainnya)
- * - deskripsi (String): Rincian spesifikasi atau kronologi barang
- * - lokasi (String): Tempat kehilangan atau penemuan
- * - tanggal (String): Tanggal kejadian format YYYY-MM-DD
- * - image (String): URL atau path gambar barang
- * - status (String): "Hilang" | "Ditemukan" | "Dikembalikan"
- * - pelapor (String): Nama pelapor barang
- * - ownerId (Number): ID user pembuat laporan (relasi ke User)
- * - verificationStatus (String): "Belum diverifikasi" | "Terverifikasi"
+ * Data Model & DTO Barang - TemuKampus.
+ * jenisLaporan menjelaskan kategori laporan (Hilang/Ditemukan), sedangkan
+ * status menjelaskan perkembangan penanganan laporan.
  */
-
 export const categories = [
   'Elektronik',
   'Dokumen',
@@ -26,9 +12,28 @@ export const categories = [
   'Lainnya',
 ];
 
-/**
- * Representasi kelas Data Model Barang
- */
+export const reportTypes = ['Hilang', 'Ditemukan'];
+export const handlingStatuses = [
+  'Belum Ditemukan',
+  'Menunggu Pemilik',
+  'Menunggu Pengambilan',
+  'Selesai Dikembalikan',
+];
+
+export function normalizeBarangStatus(status, jenisLaporan, verificationStatus) {
+  const legacy = String(status ?? '');
+  let normalized = legacy;
+  if (legacy === 'Hilang') normalized = 'Belum Ditemukan';
+  if (legacy === 'Ditemukan') normalized = 'Menunggu Pemilik';
+  if (legacy === 'Dikembalikan') normalized = 'Selesai Dikembalikan';
+  if (verificationStatus === 'Terverifikasi' && normalized !== 'Selesai Dikembalikan') {
+    normalized = 'Menunggu Pengambilan';
+  }
+  return handlingStatuses.includes(normalized)
+    ? normalized
+    : (jenisLaporan === 'Hilang' ? 'Belum Ditemukan' : 'Menunggu Pemilik');
+}
+
 export class Barang {
   constructor({
     id = 0,
@@ -38,11 +43,13 @@ export class Barang {
     lokasi = '',
     tanggal = '',
     image = '',
-    status = 'Hilang',
+    jenisLaporan = 'Hilang',
+    status = 'Belum Ditemukan',
     pelapor = '',
     ownerId = 0,
     verificationStatus = 'Belum diverifikasi',
   } = {}) {
+    const legacyStatus = String(status ?? '');
     this.id = Number(id ?? 0);
     this.nama = String(nama ?? '');
     this.kategori = String(kategori ?? 'Lainnya');
@@ -50,26 +57,19 @@ export class Barang {
     this.lokasi = String(lokasi ?? '');
     this.tanggal = String(tanggal ?? '');
     this.image = String(image ?? '');
-    this.status = String(status ?? 'Hilang');
+    this.jenisLaporan = reportTypes.includes(jenisLaporan)
+      ? jenisLaporan
+      : legacyStatus === 'Ditemukan' ? 'Ditemukan' : 'Hilang';
+    this.status = normalizeBarangStatus(legacyStatus, this.jenisLaporan, verificationStatus);
     this.pelapor = String(pelapor ?? '');
     this.ownerId = Number(ownerId ?? 0);
     this.verificationStatus = String(verificationStatus ?? 'Belum diverifikasi');
   }
 
-  /**
-   * Factory method untuk konversi JSON Object ke instance Barang
-   * @param {Object} json
-   * @returns {Barang}
-   */
   static fromJSON(json = {}) {
-    const data = json || {};
-    return new Barang(data);
+    return new Barang(json || {});
   }
 
-  /**
-   * Serialisasi instance Barang ke JSON Object (DTO murni)
-   * @returns {Object}
-   */
   toJSON() {
     return {
       id: this.id,
@@ -79,6 +79,7 @@ export class Barang {
       lokasi: this.lokasi,
       tanggal: this.tanggal,
       image: this.image,
+      jenisLaporan: this.jenisLaporan,
       status: this.status,
       pelapor: this.pelapor,
       ownerId: this.ownerId,
@@ -87,27 +88,6 @@ export class Barang {
   }
 }
 
-/**
- * Week 4 DTO mapping function:
- * Memastikan payload response dari REST API memiliki tipe data & default yang aman untuk UI.
- * @param {Object} item - Data barang mentah dari response API
- * @returns {Object} DTO Barang yang siap dikonsumsi komponen UI
- */
-export const mapBarang = (item = {}) => {
-  const safeItem = item || {};
-  return {
-    id: Number(safeItem.id ?? 0),
-    nama: String(safeItem.nama ?? ''),
-    kategori: String(safeItem.kategori ?? 'Lainnya'),
-    deskripsi: String(safeItem.deskripsi ?? ''),
-    lokasi: String(safeItem.lokasi ?? ''),
-    tanggal: String(safeItem.tanggal ?? ''),
-    image: String(safeItem.image ?? ''),
-    status: String(safeItem.status ?? ''),
-    pelapor: String(safeItem.pelapor ?? ''),
-    ownerId: Number(safeItem.ownerId ?? 0),
-    verificationStatus: String(safeItem.verificationStatus ?? 'Belum diverifikasi'),
-  };
-};
+export const mapBarang = (item = {}) => Barang.fromJSON(item).toJSON();
 
 export default Barang;

@@ -1,0 +1,16 @@
+PROMPT GITHUB — WEEK 7 TASK 02 (DISPLAY SENSOR DATA)
+
+Bertindak sebagai developer React Native + Expo dan Git specialist. Task 01 dari Week 7 sudah berada di branch aktif repository TemuKampus. Terapkan HANYA Task 02 dari `week7-task2.patch` agar nilai accelerometer X/Y/Z dari hook Task 01 muncul di UI real-time.
+
+Target Task 02: buat komponen `components/sensors/SensorDashboard.js` yang menampilkan tiga kartu X, Y, Z dalam m/s² dan riwayat 24 sampel terakhir. Komponen memakai data sensor nyata yang diberikan `SensorScreen`, bukan data tiruan atau API server. Saat sensor berhenti UI menampilkan status kosong dan riwayat dibersihkan. Tambahkan dokumentasi `docs/week7/task2.md`, jangan mengubah sistem login, API, atau data barang.
+
+Prosedur Git yang diminta:
+1. Pastikan commit Task 01 ada dan working tree bersih (`git status --short`).
+2. Salin patch ke root repo; jalankan `git apply --check week7-task2.patch` lalu `git apply week7-task2.patch`.
+3. Periksa rendering dan pembaruan nilai ketika ponsel bergerak; jalankan `git diff --check`.
+4. Stage HANYA file Task 02: `git add components/sensors/SensorDashboard.js components/sensors/SensorScreen.js docs/week7/task2.md`.
+5. Jalankan `git commit -m "feat(week7-task2): display accelerometer data in real time"`.
+6. Konfirmasi remote `origin` lalu jalankan `git push -u origin HEAD` tanpa `--force`.
+7. Laporkan SHA commit, branch, dan hasil push yang benar-benar terjadi.
+
+Jangan melanjutkan implementasi Task 03 sampai Task 02 sudah di-commit. Jika repo sudah memakai semua perubahan dari ZIP final, gunakan alur patch dari baseline asli untuk mendapatkan commit terpisah.

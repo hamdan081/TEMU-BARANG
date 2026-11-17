@@ -1,56 +1,61 @@
-# Welcome to your Expo app 👋
+# TemuKampus — Aplikasi Pelaporan Barang Hilang dan Temuan
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+TemuKampus membantu mahasiswa melaporkan barang hilang, melaporkan barang yang ditemukan, melihat daftar barang, memverifikasi kepemilikan, dan memantau proses pengembalian barang. Project menggunakan React Native + Expo dan backend REST API Node.js.
 
-## Get started
+## Menjalankan aplikasi
 
-1. Install dependencies
+1. Install Node.js LTS dan buka folder project di terminal.
+2. Jalankan `npm install`.
+3. Jalankan `npm run dev`. Perintah ini menyalakan backend pada port `4000` dan Expo Metro.
+4. Pastikan laptop dan smartphone berada pada jaringan Wi-Fi yang sama.
+5. Buka Expo Go pada smartphone dan scan QR code dari terminal.
+6. Jika server tidak terdeteksi otomatis, buka Pengaturan API di aplikasi dan isi alamat LAN laptop, misalnya `http://192.168.1.5:4000`. Jangan gunakan `localhost` dari smartphone.
 
-   ```bash
-   npm install
-   ```
+Akun demo lokal: `demo@kampus.ac.id` / `Demo123!`. Gunakan hanya untuk pengujian lokal.
 
-2. Start the app
+## Penerapan asynchronous Week 8 pada TemuKampus
 
-   ```bash
-   npx expo start
-   ```
+Materi asynchronous diterapkan pada alur laporan barang. Tidak ada Todo List generik atau daftar tugas kuliah. Konsep daftar tugas disesuaikan menjadi fitur **Tindak Lanjut Laporan**, yaitu daftar laporan yang masih perlu diperhatikan oleh pelapor atau pengguna.
 
-In the output, you'll find options to open the app in a
+- **GET** `GET /barang`: mengambil daftar laporan barang dari backend. Pemanggilan awal dilakukan setelah sesi pengguna pulih melalui `useEffect`.
+- **Loading Indicator**: `ActivityIndicator` muncul ketika daftar laporan sedang dimuat atau request sedang diproses.
+- **POST** `POST /barang`: mengirim laporan barang hilang atau barang ditemukan melalui formulir Lapor Barang.
+- **PATCH** `PATCH /barang/:id/status`: pelapor mengonfirmasi barang sudah diterima setelah ciri khusus berhasil diverifikasi.
+- **Error Handling**: operasi asynchronous memakai `async/await`, `try/catch`, pesan kesalahan, dan `Alert` pada kegagalan pengiriman, verifikasi, atau konfirmasi pengembalian.
+- **Refresh**: tombol muat ulang di Beranda, Daftar Barang, dan Tindak Lanjut serta pull-to-refresh memanggil GET kembali.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### Pemisahan jenis laporan dan status penanganan
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+`jenisLaporan` menjelaskan jenis informasi yang dibuat pengguna, sedangkan `status` menunjukkan perkembangan proses penanganannya.
 
-## Get a fresh project
+| Jenis laporan | Status awal | Makna |
+|---|---|---|
+| Hilang | Belum Ditemukan | Laporan kehilangan sudah masuk dan menunggu kecocokan barang temuan |
+| Ditemukan | Menunggu Pemilik | Barang temuan sudah dilaporkan dan menunggu pemilik mengenali ciri khusus |
 
-When you're ready, run:
+Setelah verifikasi ciri khusus berhasil, status berubah menjadi **Menunggu Pengambilan**. Setelah pelapor mengonfirmasi barang benar-benar sudah diterima, status berubah menjadi **Selesai Dikembalikan**.
+
+### Fitur Tindak Lanjut Laporan
+
+Halaman Tindak Lanjut menampilkan laporan aktif dan saran tindakan yang sesuai konteksnya, misalnya memantau laporan kehilangan, memeriksa kecocokan barang temuan, atau mengonfirmasi pengembalian. Daftar ini dibentuk dari data laporan API (GET), bukan tabel Todo terpisah. Tindakan konfirmasi menggunakan PATCH.
+
+## Pengujian
 
 ```bash
-npm run reset-project
+npm run test:week8
+npm run test:week7
+npm run test:api
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+`test:week8` menguji alur GET, POST, verifikasi, PATCH status penanganan, refresh, dan respons error pada REST API barang. Pengujian tersebut tidak menggantikan uji UI langsung melalui Expo Go.
 
-### Other setup steps
+## Catatan migrasi data
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Saat backend dimulai, status lama dinormalisasi secara otomatis:
 
-## Learn more
+- `Hilang` menjadi jenis laporan `Hilang` dengan status `Belum Ditemukan`.
+- `Ditemukan` menjadi jenis laporan `Ditemukan` dengan status `Menunggu Pemilik`.
+- `Dikembalikan` menjadi status `Selesai Dikembalikan`.
+- Laporan lama yang sudah `Terverifikasi` tetapi belum selesai menjadi `Menunggu Pengambilan`.
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Backend menyimpan data lokal di `server/data/` dan membuat folder tersebut saat dijalankan. File `.env` berisi alamat API lokal dan tidak disertakan; script `npm run dev` mencoba mendeteksi IP LAN serta membuat `.env` otomatis.

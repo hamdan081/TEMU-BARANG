@@ -1,5 +1,5 @@
 {
-  "name": "ii",
+  "name": "temukampus",
   "main": "node_modules/expo/AppEntry.js",
   "version": "1.0.0",
   "dependencies": {
@@ -47,7 +47,8 @@
     "web": "expo start --web",
     "test:api": "node --test server/server.test.js",
     "test:week7": "node --test tests/week7.motion.test.mjs",
-    "server": "node server/server.js"
+    "server": "node server/server.js",
+    "test:week8": "node --test tests/week8.barangAsync.test.mjs"
   },
   "private": true
 }

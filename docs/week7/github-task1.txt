@@ -1,0 +1,17 @@
+PROMPT GITHUB — WEEK 7 TASK 01 (CONNECT TEMUKAMPUS TO SENSOR)
+
+Bertindak sebagai developer React Native + Expo dan Git specialist. Saya memiliki repository GitHub proyek TemuKampus yang sebelumnya belum berisi pengerjaan Week 7. Terapkan HANYA perubahan Week 7 Task 01 dari berkas `week7-task1.patch` ke branch aktif repository asli. Jangan ubah atau hapus pekerjaan Week 1–6, data pengguna, atau file konfigurasi rahasia.
+
+Target Task 01: integrasikan `expo-sensors@~57.0.3`, tambahkan tab Sensor pada aplikasi TemuKampus, minta izin ketika tombol Mulai Sensor ditekan, baca accelerometer X/Y/Z secara real-time, tampilkan pada layar dan console Metro, lalu bersihkan listener ketika berhenti/halaman ditutup. Tinjau file `hooks/useAccelerometer.js`, `components/sensors/SensorScreen.js`, `App.js`, `components/BottomNav.js`, `package.json`, `package-lock.json`, `app.json`, dan `docs/week7/task1.md`.
+
+Prosedur Git yang diminta:
+1. Jalankan `git status --short` dan `git branch --show-current`; jangan lanjut jika ada perubahan tak terkait yang berisiko tertimpa.
+2. Pastikan patch disalin ke root repo; jalankan `git apply --check week7-task1.patch`, lalu `git apply week7-task1.patch`.
+3. Jalankan `npm install` (dengan internet) untuk menyinkronkan lockfile, lalu cek instalasi dan sintaks. Uji aplikasi pada ponsel Expo SDK 57 bila tersedia.
+4. Review `git diff --check` dan `git diff`. Pastikan `.env`, `server/data/`, `.git`, dan `node_modules/` tidak ikut ter-commit.
+5. Stage hanya perubahan Task 01: `git add App.js components/BottomNav.js components/sensors/SensorScreen.js hooks/useAccelerometer.js package.json package-lock.json app.json docs/week7/task1.md`.
+6. Jalankan `git commit -m "feat(week7-task1): connect TemuKampus to accelerometer"`.
+7. Pastikan remote `origin` mengarah ke repository saya; jalankan `git push -u origin HEAD` tanpa force-push.
+8. Laporkan SHA commit, nama branch, dan hasil push. Jika belum login GitHub atau push gagal, jangan mengklaim berhasil.
+
+Jangan menjalankan Task 02 atau 03 dulu. Untuk commit terpisah, jangan menyalin ZIP final yang sudah berisi ketiga task sebelum menjalankan patch Task 01.
