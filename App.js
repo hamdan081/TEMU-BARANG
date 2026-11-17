@@ -25,17 +25,24 @@ import BottomNav from './components/BottomNav';
 import ItemCard from './components/ItemCard';
 import SensorScreen from './components/sensors/SensorScreen';
 import {categories,handlingStatuses,reportTypes} from './models/Barang';
-import {API_BASE_URL,ApiError,registerUser,loginWithAPI,getProfile,logoutAPI,fetchBarang,fetchBarangHilang,fetchBarangTemuan,createBarang,verifyBarang,markReturned,uploadPhoto,resolveImageUrl,refreshAccessToken,setApiBaseUrl,getApiBaseUrl,getAutoDetectedHost} from './services/api';
+import {API_BASE_URL,ApiError,registerUser,loginWithAPI,getProfile,logoutAPI,fetchBarang,fetchBarangHilang,fetchBarangTemuan,createBarang,createBarangHilang,createBarangTemuan,verifyBarang,markReturned,uploadPhoto,resolveImageUrl,refreshAccessToken,setApiBaseUrl,getApiBaseUrl,getAutoDetectedHost} from './services/api';
 import {clearSession,getToken,saveSession,savePreference,getPreference,saveApiUrl,getSavedApiUrl} from './storage/session';
 
 const primary='#1565C0';
 const blankForm={nama:'',kategori:'Elektronik',lokasi:'',deskripsi:'',jenisLaporan:'Hilang',image:'',verificationSecret:''};
 
-function UIButton({title,onPress,secondary=false,disabled=false,danger=false,style,accessibilityLabel,accessibilityHint}){
- return <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={accessibilityLabel || title}
+function UIButton({title,onPress,secondary=false,disabled=false,danger=false,loading=false,style,accessibilityLabel,accessibilityHint}){
+ return <Pressable onPress={onPress} disabled={disabled||loading} accessibilityRole="button" accessibilityLabel={accessibilityLabel || title}
   accessibilityHint={accessibilityHint}
-  accessibilityState={{disabled}} style={[styles.button,secondary&&styles.outline,danger&&styles.danger,disabled&&styles.disabled,style]}>
-  <Text style={[styles.buttonText,secondary&&styles.outlineText]}>{title}</Text>
+  accessibilityState={{disabled: disabled||loading}} style={[styles.button,secondary&&styles.outline,danger&&styles.danger,(disabled||loading)&&styles.disabled,style]}>
+  {loading ? (
+   <View style={{flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8}}>
+    <ActivityIndicator size="small" color={secondary?primary:'#fff'}/>
+    <Text style={[styles.buttonText,secondary&&styles.outlineText]}>{title}</Text>
+   </View>
+  ) : (
+   <Text style={[styles.buttonText,secondary&&styles.outlineText]}>{title}</Text>
+  )}
  </Pressable>;
 }
 function Field({label,value,onChangeText,placeholder,secret=false,multiline=false,autoCapitalize='sentences',keyboardType='default'}){
@@ -498,43 +505,126 @@ export default function App(){
  const selectItem=item=>{setSelected(item);navigate('detail');};
  const startReport=jenisLaporan=>{setForm({...blankForm,jenisLaporan});setSelectedImage(null);setSelectedImageBase64(null);navigate('report');};
  const changeReport=(key,value)=>setForm(previous=>({...previous,[key]:value}));
- // Week 8: POST /barang mengirim laporan barang hilang/temuan ke backend TemuKampus.
- const submitReport=async()=>{
-  if(!form.nama.trim()||!form.lokasi.trim()||!form.deskripsi.trim()||form.verificationSecret.trim().length<4){
-   setError('Isi nama, lokasi, ciri-ciri, dan ciri rahasia minimal 4 karakter.');
+ // Week 9 Task 02 (anggota-2-post): POST /barang untuk laporan barang hilang dan temuan
+ // - Validasi input sebelum kirim
+ // - async/await & try/catch/finally
+ // - ActivityIndicator selama proses pengiriman (busy)
+ // - Alert untuk notifikasi berhasil & gagal
+ // - Perbarui daftar barang setelah laporan berhasil disimpan
+ const submitReport = async () => {
+  // 1. Validasi input sebelum data dikirim
+  if (!form.nama || !form.nama.trim()) {
+   const msg = 'Nama barang wajib diisi.';
+   setError(msg);
+   Alert.alert('Validasi Gagal', msg);
    return;
   }
-  // Week 6 Task 03: Periksa koneksi internet sebelum mengirim laporan baru (cegah duplikasi dan kegagalan upload)
+  if (!form.kategori || !categories.includes(form.kategori)) {
+   const msg = 'Pilih kategori barang yang valid.';
+   setError(msg);
+   Alert.alert('Validasi Gagal', msg);
+   return;
+  }
+  if (!form.lokasi || !form.lokasi.trim()) {
+   const msg = 'Lokasi barang wajib diisi.';
+   setError(msg);
+   Alert.alert('Validasi Gagal', msg);
+   return;
+  }
+  if (!form.deskripsi || !form.deskripsi.trim()) {
+   const msg = 'Ciri-ciri / deskripsi barang wajib diisi.';
+   setError(msg);
+   Alert.alert('Validasi Gagal', msg);
+   return;
+  }
+  if (!['Hilang', 'Ditemukan'].includes(form.jenisLaporan)) {
+   const msg = 'Pilih jenis laporan yang valid (Hilang atau Ditemukan).';
+   setError(msg);
+   Alert.alert('Validasi Gagal', msg);
+   return;
+  }
+  if (!form.verificationSecret || form.verificationSecret.trim().length < 4) {
+   const msg = 'Ciri rahasia untuk verifikasi minimal 4 karakter.';
+   setError(msg);
+   Alert.alert('Validasi Gagal', msg);
+   return;
+  }
+
+  // 2. Periksa koneksi internet sebelum mengirim laporan baru (cegah duplikasi dan kegagalan upload)
   try {
    const netState = await NetInfo.fetch();
    const online = Boolean(netState.isConnected && netState.isInternetReachable !== false);
    setIsOnline(online);
    if (!online) {
-    setError('Tidak ada koneksi internet. Formulir dan foto Anda tetap tersimpan. Silakan periksa koneksi Anda dan coba kirim kembali.');
+    const offlineMsg = 'Tidak ada koneksi internet. Formulir dan foto Anda tetap tersimpan. Silakan periksa koneksi Anda dan coba kirim kembali.';
+    setError(offlineMsg);
+    Alert.alert('Koneksi Terputus', offlineMsg);
     return; // Formulir dan foto tetap tersimpan, tidak di-reset, dan tidak melakukan auto-resend
    }
   } catch {}
 
-  setBusy(true);setError('');setMessage(selectedImage||selectedImageBase64?'Mengunggah foto barang...':'Menyimpan laporan...');
-  try{
-   let uploadedUrl='';
-   if(selectedImage||selectedImageBase64){
-    uploadedUrl=await guarded(()=>uploadPhoto(selectedImage,selectedImageBase64));
+  // 3. Tampilkan Loading (ActivityIndicator)
+  setBusy(true);
+  setError('');
+  setMessage(selectedImage || selectedImageBase64 ? 'Mengunggah foto barang...' : 'Menyimpan laporan...');
+
+  // 4. Proses pengiriman dengan try/catch/finally dan async/await
+  try {
+   let uploadedUrl = '';
+   if (selectedImage || selectedImageBase64) {
+    uploadedUrl = await guarded(() => uploadPhoto(selectedImage, selectedImageBase64));
    }
-   setMessage('Menyimpan laporan...');
-   const payload={...form,image:uploadedUrl};
-   const created=await guarded(()=>createBarang(payload));
-   await refreshItems();setForm(blankForm);setSelectedImage(null);setSelectedImageBase64(null);setSelected(created);setScreen('detail');
-   setMessage(uploadedUrl?'Laporan dan foto berhasil tersimpan pada server.':'Laporan tersimpan pada server.');
-  }catch(e){
-   if(e.status!==401){
+   setMessage('Menyimpan laporan ke server...');
+
+   // Sanitasi payload: hanya field yang dikenali backend
+   const payload = {
+    nama: form.nama.trim(),
+    kategori: form.kategori,
+    lokasi: form.lokasi.trim(),
+    deskripsi: form.deskripsi.trim(),
+    jenisLaporan: form.jenisLaporan,
+    verificationSecret: form.verificationSecret.trim(),
+    ...(uploadedUrl ? { image: uploadedUrl } : {})
+   };
+
+   // POST laporan barang hilang atau temuan via API
+   const created = await guarded(() =>
+    payload.jenisLaporan === 'Hilang' ? createBarangHilang(payload) : createBarangTemuan(payload)
+   );
+
+   // 5. Perbarui daftar barang agar laporan terbaru dapat ditampilkan
+   await refreshItems();
+   if (typeof refreshAllBarang === 'function') {
+    await refreshAllBarang();
+   }
+
+   // 6. Reset form, arahkan ke detail barang yang baru dibuat
+   setForm(blankForm);
+   setSelectedImage(null);
+   setSelectedImageBase64(null);
+   setSelected(created);
+   setScreen('detail');
+
+   // 7. Tampilkan Alert berhasil
+   const successMsg = `Laporan barang ${created.jenisLaporan.toLowerCase()} "${created.nama}" berhasil tersimpan pada server.`;
+   setMessage(successMsg);
+   Alert.alert(
+    'Laporan Berhasil Dikirim',
+    `Laporan barang ${created.jenisLaporan.toLowerCase()} "${created.nama}" berhasil dibuat dengan status awal "${created.status}".`,
+    [{ text: 'OK' }]
+   );
+  } catch (e) {
+   if (e.status !== 401) {
     const errorMessage = (!isOnline || e.isNetworkError)
      ? 'Gagal mengirim laporan karena gangguan jaringan atau server tidak terjangkau. Formulir dan foto Anda tetap tersimpan.'
-     : (e.message||'Gagal mengirim laporan.');
+     : (e.message || 'Gagal mengirim laporan ke server.');
     setError(errorMessage);
-    Alert.alert('Laporan Barang Gagal Dikirim', errorMessage);
+    Alert.alert('Laporan Barang Gagal Dikirim', errorMessage, [{ text: 'OK' }]);
    }
-  }finally{setBusy(false);}
+  } finally {
+   // 8. Matikan loading indicator pada blok finally
+   setBusy(false);
+  }
  };
  const submitClaim=async()=>{
   if(!claimAnswer.trim()){setError('Isi ciri khusus barang untuk verifikasi.');return;}
@@ -831,7 +921,14 @@ export default function App(){
       </View>
       <Field label="Ciri rahasia untuk verifikasi" value={form.verificationSecret} onChangeText={v=>changeReport('verificationSecret',v)} placeholder="Jawaban yang diketahui pemilik barang"/>
       <Text style={styles.hint}>Ciri rahasia tidak akan ditampilkan pada daftar barang. Ini adalah simulasi verifikasi untuk praktikum, bukan pemeriksaan identitas resmi.</Text>
-      <UIButton title={busy?'Mengirim...':'Kirim Laporan'} onPress={submitReport} disabled={busy}/>
+      {/* Week 9 Task 02 (anggota-2-post): Loading state & ActivityIndicator selama proses pengiriman */}
+      {busy && (
+       <View style={styles.submittingBox} accessibilityLiveRegion="polite">
+        <ActivityIndicator size="small" color={primary}/>
+        <Text style={styles.submittingText}>{message || 'Mengirim laporan ke server...'}</Text>
+       </View>
+      )}
+      <UIButton title={busy ? 'Mengirim Laporan...' : 'Kirim Laporan'} loading={busy} onPress={submitReport} disabled={busy} accessibilityLabel="Kirim Laporan Barang"/>
      </>}
      {screen==='detail'&&selected&&<>
       <UIButton title="‹ Kembali ke Daftar" secondary onPress={()=>navigate('list')}/>
@@ -946,4 +1043,6 @@ const styles=StyleSheet.create({
  w9SectionTitle:{fontSize:16,fontWeight:'800',color:'#14213A'},
  w9ViewAll:{marginTop:10,alignItems:'center',paddingVertical:8},
  w9ViewAllText:{color:primary,fontWeight:'700',fontSize:13},
+ submittingBox:{flexDirection:'row',alignItems:'center',justifyContent:'center',gap:10,backgroundColor:'#EFF6FF',borderWidth:1,borderColor:'#BFDBFE',borderRadius:12,padding:12,marginVertical:8},
+ submittingText:{color:primary,fontSize:14,fontWeight:'700'},
 });
