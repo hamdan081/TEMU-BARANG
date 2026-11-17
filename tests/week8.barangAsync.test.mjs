@@ -147,3 +147,84 @@ test('Week 8 migrates legacy item statuses into report type and handling status'
   const savedDb = JSON.parse(readFileSync(join(dataDir, 'database.json'), 'utf8'));
   assert.equal(savedDb.barang.find((item) => item.id === 11).status, 'Belum Ditemukan');
 });
+
+test('Week 9 Task 02 POST laporan barang: validasi form, barang hilang vs temuan, dan error handling', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'temukampus-week9-post-'));
+  const server = createApp({ dataDir, secret: 'week9-post-test-secret' });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const request = async (path, { method = 'GET', body, token } = {}) => {
+    const headers = { Accept: 'application/json' };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const response = await fetch(`${baseUrl}${path}`, {
+      method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+
+  const login = await request('/auth/login', {
+    method: 'POST', body: { email: 'demo@kampus.ac.id', password: 'Demo123!' },
+  });
+  const token = login.body.access_token;
+  assert.ok(token);
+
+  // 1. Validasi input: field wajib kosong ditolak dengan status 400
+  const invalidEmpty = await request('/barang', {
+    method: 'POST', token, body: { nama: '', kategori: 'Elektronik', lokasi: '', deskripsi: '', jenisLaporan: 'Hilang', verificationSecret: 'abc' }
+  });
+  assert.equal(invalidEmpty.status, 400);
+
+  // 2. Validasi secret kurang dari 4 karakter ditolak dengan status 400
+  const invalidSecret = await request('/barang', {
+    method: 'POST', token, body: { nama: 'Kunci', kategori: 'Aksesoris', lokasi: 'Kantin', deskripsi: 'Kunci motor', jenisLaporan: 'Hilang', verificationSecret: '123' }
+  });
+  assert.equal(invalidSecret.status, 400);
+
+  // 3. POST laporan barang hilang berhasil -> jenisLaporan 'Hilang', status awal 'Belum Ditemukan'
+  const postHilang = await request('/barang', {
+    method: 'POST', token, body: {
+      nama: 'Jaket Almamater',
+      kategori: 'Pakaian',
+      deskripsi: 'Jaket almamater biru ukuran L tertinggal di kursi.',
+      lokasi: 'Gedung Serbaguna',
+      jenisLaporan: 'Hilang',
+      verificationSecret: 'nama hamdan di saku',
+    }
+  });
+  assert.equal(postHilang.status, 201);
+  assert.equal(postHilang.body.data.nama, 'Jaket Almamater');
+  assert.equal(postHilang.body.data.jenisLaporan, 'Hilang');
+  assert.equal(postHilang.body.data.status, 'Belum Ditemukan');
+  assert.equal(postHilang.body.data.verificationStatus, 'Belum diverifikasi');
+
+  // 4. POST laporan barang temuan berhasil -> jenisLaporan 'Ditemukan', status awal 'Menunggu Pemilik'
+  const postTemuan = await request('/barang', {
+    method: 'POST', token, body: {
+      nama: 'Tumbler Minum Biru',
+      kategori: 'Lainnya',
+      deskripsi: 'Tumbler stainless warna biru merk LocknLock.',
+      lokasi: 'Perpustakaan Lt. 2',
+      jenisLaporan: 'Ditemukan',
+      verificationSecret: 'stiker kucing di tutup',
+    }
+  });
+  assert.equal(postTemuan.status, 201);
+  assert.equal(postTemuan.body.data.nama, 'Tumbler Minum Biru');
+  assert.equal(postTemuan.body.data.jenisLaporan, 'Ditemukan');
+  assert.equal(postTemuan.body.data.status, 'Menunggu Pemilik');
+
+  // 5. GET /barang memastikan kedua laporan baru muncul dalam daftar terbaru
+  const list = await request('/barang', { token });
+  assert.equal(list.status, 200);
+  const foundHilang = list.body.data.find(b => b.nama === 'Jaket Almamater');
+  const foundTemuan = list.body.data.find(b => b.nama === 'Tumbler Minum Biru');
+  assert.ok(foundHilang, 'Laporan barang hilang harus ada di daftar');
+  assert.ok(foundTemuan, 'Laporan barang temuan harus ada di daftar');
+});

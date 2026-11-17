@@ -302,10 +302,30 @@ export const fetchBarangTemuan = async () => {
   const semua = await fetchBarang();
   return semua.filter(item => item.jenisLaporan === 'Ditemukan');
 };
-// Week 8: POST /barang menyimpan laporan barang hilang atau barang temuan.
-export const createBarang=async form=>{
- const response=await request('/barang',{method:'POST',authenticated:true,body:form});
- return mapBarang(response.data);
+// Week 9 Task 02 (anggota-2-post): POST /barang menyimpan laporan barang hilang atau barang temuan.
+// Memastikan hanya field yang dikenali backend yang dikirimkan.
+export const createBarang = async form => {
+  const payload = {
+    nama: String(form.nama || '').trim(),
+    kategori: form.kategori,
+    lokasi: String(form.lokasi || '').trim(),
+    deskripsi: String(form.deskripsi || '').trim(),
+    jenisLaporan: form.jenisLaporan,
+    verificationSecret: String(form.verificationSecret || '').trim(),
+    ...(form.image ? { image: form.image } : {})
+  };
+  const response = await request('/barang', { method: 'POST', authenticated: true, body: payload });
+  return mapBarang(response.data);
+};
+
+// Week 9 Task 02 (anggota-2-post): Helper POST khusus laporan barang hilang
+export const createBarangHilang = async form => {
+  return createBarang({ ...form, jenisLaporan: 'Hilang' });
+};
+
+// Week 9 Task 02 (anggota-2-post): Helper POST khusus laporan barang temuan
+export const createBarangTemuan = async form => {
+  return createBarang({ ...form, jenisLaporan: 'Ditemukan' });
 };
 export const verifyBarang=async(id,jawaban)=>{
  const response=await request(`/barang/${id}/verify`,{method:'POST',authenticated:true,body:{jawaban}});
