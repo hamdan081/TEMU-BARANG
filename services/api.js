@@ -288,6 +288,20 @@ export const fetchBarang = async () => {
   if (!Array.isArray(response.data)) throw new ApiError('Format data API tidak sesuai.');
   return response.data.map(mapBarang);
 };
+
+// Week 9 Task 01 (anggota-1-get): GET daftar barang hilang — filter jenisLaporan === 'Hilang'.
+// Menggunakan fetchBarang() yang sudah ada agar tidak ada duplikasi request ke server.
+export const fetchBarangHilang = async () => {
+  const semua = await fetchBarang();
+  return semua.filter(item => item.jenisLaporan === 'Hilang');
+};
+
+// Week 9 Task 01 (anggota-1-get): GET daftar barang temuan — filter jenisLaporan === 'Ditemukan'.
+// Menggunakan fetchBarang() yang sudah ada agar tidak ada duplikasi request ke server.
+export const fetchBarangTemuan = async () => {
+  const semua = await fetchBarang();
+  return semua.filter(item => item.jenisLaporan === 'Ditemukan');
+};
 // Week 8: POST /barang menyimpan laporan barang hilang atau barang temuan.
 export const createBarang=async form=>{
  const response=await request('/barang',{method:'POST',authenticated:true,body:form});

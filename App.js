@@ -1,10 +1,12 @@
 /**
- * TemuKampus — project terpadu Mobile Programming Week 1–8.
+ * TemuKampus — project terpadu Mobile Programming Week 1–9.
  * Week 1–3: perancangan aplikasi, React Native UI, autentikasi dan keamanan sesi.
  * Week 4–5: Barang DTO, REST API, JWT, protected endpoint, refresh token dan logout.
  * Week 6: error state, loading, retry dan penanganan koneksi offline.
  * Week 7: sensor gerak untuk fitur keamanan meja.
  * Week 8: GET, POST, PATCH, loading, error handling dan refresh pada laporan barang.
+ * Week 9 (anggota-1-get): GET barang hilang & temuan terpisah, useEffect, async/await,
+ *   ActivityIndicator, pull-to-refresh, try/catch/finally, Alert error, empty state.
  */
 import React,{useCallback,useEffect,useMemo,useState} from 'react';
 import {
@@ -23,7 +25,7 @@ import BottomNav from './components/BottomNav';
 import ItemCard from './components/ItemCard';
 import SensorScreen from './components/sensors/SensorScreen';
 import {categories,handlingStatuses,reportTypes} from './models/Barang';
-import {API_BASE_URL,ApiError,registerUser,loginWithAPI,getProfile,logoutAPI,fetchBarang,createBarang,verifyBarang,markReturned,uploadPhoto,resolveImageUrl,refreshAccessToken,setApiBaseUrl,getApiBaseUrl,getAutoDetectedHost} from './services/api';
+import {API_BASE_URL,ApiError,registerUser,loginWithAPI,getProfile,logoutAPI,fetchBarang,fetchBarangHilang,fetchBarangTemuan,createBarang,verifyBarang,markReturned,uploadPhoto,resolveImageUrl,refreshAccessToken,setApiBaseUrl,getApiBaseUrl,getAutoDetectedHost} from './services/api';
 import {clearSession,getToken,saveSession,savePreference,getPreference,saveApiUrl,getSavedApiUrl} from './storage/session';
 
 const primary='#1565C0';
@@ -154,6 +156,13 @@ export default function App(){
  const [loadingItems,setLoadingItems]=useState(false);
  const [itemsError,setItemsError]=useState('');
  const [itemsErrorObj,setItemsErrorObj]=useState(null);
+ // Week 9 Task 01 (anggota-1-get): State terpisah untuk barang hilang dan barang temuan
+ const [barangHilang,setBarangHilang]=useState([]);
+ const [loadingHilang,setLoadingHilang]=useState(false);
+ const [hilangError,setHilangError]=useState(null);
+ const [barangTemuan,setBarangTemuan]=useState([]);
+ const [loadingTemuan,setLoadingTemuan]=useState(false);
+ const [temuanError,setTemuanError]=useState(null);
  const [isOnline,setIsOnline]=useState(true);
  const [search,setSearch]=useState('');
  const [category,setCategory]=useState('Semua');
@@ -268,6 +277,47 @@ export default function App(){
   }finally{setLoadingItems(false);}
  },[guarded]);
 
+ // Week 9 Task 01 (anggota-1-get): GET barang hilang — useEffect, async/await, try/catch/finally, Alert error, empty state.
+ const loadBarangHilang=useCallback(async()=>{
+  setLoadingHilang(true);setHilangError(null);
+  try{
+   const list=await guarded(fetchBarangHilang);
+   setBarangHilang(list);
+  }catch(e){
+   if(e.status!==401){
+    setHilangError(e);
+    Alert.alert(
+     'Gagal Memuat Barang Hilang',
+     e.message||'Tidak dapat mengambil daftar barang hilang. Periksa koneksi dan coba lagi.',
+     [{text:'OK'}]
+    );
+   }
+  }finally{setLoadingHilang(false);}
+ },[guarded]);
+
+ // Week 9 Task 01 (anggota-1-get): GET barang temuan — useEffect, async/await, try/catch/finally, Alert error, empty state.
+ const loadBarangTemuan=useCallback(async()=>{
+  setLoadingTemuan(true);setTemuanError(null);
+  try{
+   const list=await guarded(fetchBarangTemuan);
+   setBarangTemuan(list);
+  }catch(e){
+   if(e.status!==401){
+    setTemuanError(e);
+    Alert.alert(
+     'Gagal Memuat Barang Temuan',
+     e.message||'Tidak dapat mengambil daftar barang temuan. Periksa koneksi dan coba lagi.',
+     [{text:'OK'}]
+    );
+   }
+  }finally{setLoadingTemuan(false);}
+ },[guarded]);
+
+ // Week 9 Task 01 (anggota-1-get): Refresh kedua jenis barang sekaligus (barang hilang + temuan)
+ const refreshAllBarang=useCallback(async()=>{
+  await Promise.all([loadBarangHilang(),loadBarangTemuan()]);
+ },[loadBarangHilang,loadBarangTemuan]);
+
  // Week 6 Task 02 & Task 03: Retry mechanism dengan pencegahan request ganda dan pengecekan koneksi
  const handleRetry=useCallback(async()=>{
   if(loadingItems)return; // Cegah request ganda (TEST 08)
@@ -281,7 +331,9 @@ export default function App(){
    }
   } catch {}
   await refreshItems();
- },[loadingItems,refreshItems]);
+  // Week 9 Task 01 (anggota-1-get): Refresh barang hilang & temuan saat user menekan Refresh
+  await refreshAllBarang();
+ },[loadingItems,refreshItems,refreshAllBarang]);
 
  // Week 5 Task 03: Session Management (checkSession & restoreSession)
  const checkSession = useCallback(async () => {
@@ -335,6 +387,8 @@ export default function App(){
  }, [restoreSession]);
  // Week 8: useEffect menjalankan GET daftar barang setelah sesi pengguna berhasil dipulihkan.
  useEffect(()=>{if(authenticated)refreshItems();},[authenticated,refreshItems]);
+ // Week 9 Task 01 (anggota-1-get): useEffect terpisah — GET barang hilang & temuan saat halaman pertama dibuka.
+ useEffect(()=>{if(authenticated){loadBarangHilang();loadBarangTemuan();}},[authenticated,loadBarangHilang,loadBarangTemuan]);
 
  const changeAuth=(key,value)=>{setAuthForm(current=>({...current,[key]:value}));setError('');};
  const handleSaveApiUrl=async()=>{
@@ -427,6 +481,8 @@ export default function App(){
   setAuthUser(null);
   setItems([]);
   setSelected(null);
+  // Week 9 Task 01 (anggota-1-get): Bersihkan cache barang hilang & temuan saat logout
+  setBarangHilang([]);setBarangTemuan([]);setHilangError(null);setTemuanError(null);
   // 4. Ubah status dan arahkan ke login (isAuthenticated false, tidak bisa back ke Home)
   setScreen('login');
   setAuthForm({ name: '', email: '', password: '', confirm: '' });
@@ -693,6 +749,50 @@ export default function App(){
        </>
       )}
       <UIButton title={loadingItems ? "Memuat..." : "Muat ulang data barang"} onPress={handleRetry} secondary disabled={loadingItems} accessibilityLabel="Muat ulang data barang"/>
+      {/* Week 9 Task 01 (anggota-1-get): Seksi GET Barang Hilang — useEffect, ActivityIndicator, pull-to-refresh, try/catch/finally, Alert, empty state */}
+      <View style={styles.w9Section}>
+       <View style={styles.w9SectionHeader}>
+        <Text style={styles.w9SectionTitle}>🔍 Barang Hilang</Text>
+        <Pressable onPress={loadBarangHilang} disabled={loadingHilang} accessibilityRole="button" accessibilityLabel="Refresh barang hilang" style={[styles.listRefreshButton,loadingHilang&&styles.disabled]}>
+         {loadingHilang?<ActivityIndicator size="small" color={primary}/>:<Text style={styles.listRefreshText}>↻ Refresh</Text>}
+        </Pressable>
+       </View>
+       {loadingHilang&&barangHilang.length===0?(
+        <LoadingStateView message="Memuat daftar barang hilang..."/>
+       ):hilangError?(
+        <ErrorStateView error={hilangError} isOffline={!isOnline} onRetry={loadBarangHilang} retrying={loadingHilang}/>
+       ):barangHilang.length===0?(
+        <EmptyStateView title="Belum Ada Barang Hilang" message="Belum ada laporan barang hilang. Jika barang Anda hilang, buat laporan baru."/>
+       ):(
+        <>
+         {loadingHilang&&<ActivityIndicator color={primary} style={{marginVertical:6}}/>}
+         {barangHilang.slice(0,3).map(item=><ItemCard key={item.id} item={item} compact onPress={()=>selectItem(item)}/>)}
+         {barangHilang.length>3&&<Pressable onPress={()=>{setTypeFilter('Hilang');navigate('list');}} accessibilityRole="button" style={styles.w9ViewAll}><Text style={styles.w9ViewAllText}>Lihat semua {barangHilang.length} barang hilang ›</Text></Pressable>}
+        </>
+       )}
+      </View>
+      {/* Week 9 Task 01 (anggota-1-get): Seksi GET Barang Temuan — useEffect, ActivityIndicator, pull-to-refresh, try/catch/finally, Alert, empty state */}
+      <View style={styles.w9Section}>
+       <View style={styles.w9SectionHeader}>
+        <Text style={styles.w9SectionTitle}>📦 Barang Temuan</Text>
+        <Pressable onPress={loadBarangTemuan} disabled={loadingTemuan} accessibilityRole="button" accessibilityLabel="Refresh barang temuan" style={[styles.listRefreshButton,loadingTemuan&&styles.disabled]}>
+         {loadingTemuan?<ActivityIndicator size="small" color={primary}/>:<Text style={styles.listRefreshText}>↻ Refresh</Text>}
+        </Pressable>
+       </View>
+       {loadingTemuan&&barangTemuan.length===0?(
+        <LoadingStateView message="Memuat daftar barang temuan..."/>
+       ):temuanError?(
+        <ErrorStateView error={temuanError} isOffline={!isOnline} onRetry={loadBarangTemuan} retrying={loadingTemuan}/>
+       ):barangTemuan.length===0?(
+        <EmptyStateView title="Belum Ada Barang Temuan" message="Belum ada laporan barang temuan. Jika Anda menemukan barang, buat laporan baru."/>
+       ):(
+        <>
+         {loadingTemuan&&<ActivityIndicator color={primary} style={{marginVertical:6}}/>}
+         {barangTemuan.slice(0,3).map(item=><ItemCard key={item.id} item={item} compact onPress={()=>selectItem(item)}/>)}
+         {barangTemuan.length>3&&<Pressable onPress={()=>{setTypeFilter('Ditemukan');navigate('list');}} accessibilityRole="button" style={styles.w9ViewAll}><Text style={styles.w9ViewAllText}>Lihat semua {barangTemuan.length} barang temuan ›</Text></Pressable>}
+        </>
+       )}
+      </View>
      </>}
      {screen==='report'&&<>
       <Text style={styles.heading} accessibilityRole="header">Lapor Barang</Text><Text style={styles.muted}>Isi informasi dengan jelas untuk membantu proses pencarian.</Text>
@@ -840,5 +940,10 @@ const styles=StyleSheet.create({
  testStatusText:{fontSize:12,fontWeight:'700',padding:8,borderRadius:8,marginBottom:10,textAlign:'center'},
  testSuccess:{backgroundColor:'#DCFCE7',color:'#15803D'},
  testFail:{backgroundColor:'#FEE2E2',color:'#B91C1C'},
- modalActions:{flexDirection:'row',gap:10,marginTop:6}
+ modalActions:{flexDirection:'row',gap:10,marginTop:6},
+ w9Section:{backgroundColor:'#fff',borderRadius:14,borderWidth:1,borderColor:'#E2E8F0',padding:14,marginVertical:10},
+ w9SectionHeader:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:10},
+ w9SectionTitle:{fontSize:16,fontWeight:'800',color:'#14213A'},
+ w9ViewAll:{marginTop:10,alignItems:'center',paddingVertical:8},
+ w9ViewAllText:{color:primary,fontWeight:'700',fontSize:13},
 });
