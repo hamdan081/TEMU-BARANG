@@ -228,3 +228,136 @@ test('Week 9 Task 02 POST laporan barang: validasi form, barang hilang vs temuan
   assert.ok(foundHilang, 'Laporan barang hilang harus ada di daftar');
   assert.ok(foundTemuan, 'Laporan barang temuan harus ada di daftar');
 });
+
+test('Week 9 Task 03 PATCH status barang dan error handling: transisi status, izin owner, dan update data', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'temukampus-week9-patch-'));
+  const server = createApp({ dataDir, secret: 'week9-patch-test-secret' });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const request = async (path, { method = 'GET', body, token } = {}) => {
+    const headers = { Accept: 'application/json' };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const response = await fetch(`${baseUrl}${path}`, {
+      method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+
+  // 1. Login user demo (owner)
+  const loginDemo = await request('/auth/login', {
+    method: 'POST', body: { email: 'demo@kampus.ac.id', password: 'Demo123!' },
+  });
+  const tokenOwner = loginDemo.body.access_token;
+  assert.ok(tokenOwner);
+
+  // 2. Registrasi dan login user lain (non-owner) untuk uji validasi hak akses
+  const registerOther = await request('/auth/register', {
+    method: 'POST', body: { name: 'User Lain', email: 'other@kampus.ac.id', password: 'Password123!' },
+  });
+  assert.equal(registerOther.status, 201);
+  const loginOther = await request('/auth/login', {
+    method: 'POST', body: { email: 'other@kampus.ac.id', password: 'Password123!' },
+  });
+  const tokenOther = loginOther.body.access_token;
+  assert.ok(tokenOther);
+
+  // 3. POST laporan barang baru oleh owner
+  const postRes = await request('/barang', {
+    method: 'POST', token: tokenOwner, body: {
+      nama: 'Tas Ransel Abu-abu',
+      kategori: 'Aksesoris',
+      deskripsi: 'Tas ransel abu-abu tertinggal di lab komputer.',
+      lokasi: 'Lab Komputer 3',
+      jenisLaporan: 'Ditemukan',
+      verificationSecret: 'ada stiker react di gantungan',
+    }
+  });
+  assert.equal(postRes.status, 201);
+  const itemId = postRes.body.data.id;
+  assert.equal(postRes.body.data.status, 'Menunggu Pemilik');
+
+  // 4. Uji Hak Akses: User lain tidak diizinkan mengubah status (403 Forbidden)
+  const forbiddenStatus = await request(`/barang/${itemId}/status`, {
+    method: 'PATCH', token: tokenOther, body: { status: 'Selesai Dikembalikan' }
+  });
+  assert.equal(forbiddenStatus.status, 403);
+  assert.match(forbiddenStatus.body.message, /Hanya pembuat laporan/);
+
+  // 5. Uji Validasi Alur Status: Selesai Dikembalikan ditolak jika belum diverifikasi (400 Bad Request)
+  const prematurePatch = await request(`/barang/${itemId}/status`, {
+    method: 'PATCH', token: tokenOwner, body: { status: 'Selesai Dikembalikan' }
+  });
+  assert.equal(prematurePatch.status, 400);
+  assert.match(prematurePatch.body.message, /Barang harus terverifikasi/);
+
+  // 6. Verifikasi ciri khusus berhasil -> status beralih menjadi 'Menunggu Pengambilan'
+  const verifyRes = await request(`/barang/${itemId}/verify`, {
+    method: 'POST', token: tokenOther, body: { jawaban: 'ada stiker react di gantungan' }
+  });
+  assert.equal(verifyRes.status, 200);
+  assert.equal(verifyRes.body.data.status, 'Menunggu Pengambilan');
+
+  // 7. PATCH status berhasil -> 'Selesai Dikembalikan'
+  const patchSuccess = await request(`/barang/${itemId}/status`, {
+    method: 'PATCH', token: tokenOwner, body: { status: 'Selesai Dikembalikan' }
+  });
+  assert.equal(patchSuccess.status, 200);
+  assert.equal(patchSuccess.body.data.status, 'Selesai Dikembalikan');
+
+  // 8. Verifikasi konsistensi data setelah PATCH via GET /barang
+  const getUpdated = await request(`/barang/${itemId}`, { token: tokenOwner });
+  assert.equal(getUpdated.status, 200);
+  assert.equal(getUpdated.body.data.status, 'Selesai Dikembalikan');
+
+  // 9. Uji PATCH status menjadi 'Belum Terselesaikan' pada laporan baru
+  const postLost = await request('/barang', {
+    method: 'POST', token: tokenOwner, body: {
+      nama: 'Buku Catatan Pemrograman',
+      kategori: 'Dokumen',
+      deskripsi: 'Buku bergaris cover cokelat.',
+      lokasi: 'Perpustakaan Lt. 1',
+      jenisLaporan: 'Hilang',
+      verificationSecret: 'tanda tangan di halaman 1',
+    }
+  });
+  assert.equal(postLost.status, 201);
+  const lostId = postLost.body.data.id;
+
+  const patchUnresolved = await request(`/barang/${lostId}/status`, {
+    method: 'PATCH', token: tokenOwner, body: { status: 'Belum Terselesaikan' }
+  });
+  assert.equal(patchUnresolved.status, 200);
+  assert.equal(patchUnresolved.body.data.status, 'Belum Terselesaikan');
+
+  // 10. Uji PATCH pembaruan informasi laporan (PATCH /barang/:id)
+  const patchInfo = await request(`/barang/${lostId}`, {
+    method: 'PATCH', token: tokenOwner, body: {
+      nama: 'Buku Catatan Mobile Programming',
+      lokasi: 'Perpustakaan Lt. 2 Ruang Diskusi',
+      deskripsi: 'Buku bergaris cover cokelat dengan catatan Week 1-8.',
+    }
+  });
+  assert.equal(patchInfo.status, 200);
+  assert.equal(patchInfo.body.data.nama, 'Buku Catatan Mobile Programming');
+  assert.equal(patchInfo.body.data.lokasi, 'Perpustakaan Lt. 2 Ruang Diskusi');
+  assert.equal(patchInfo.body.data.deskripsi, 'Buku bergaris cover cokelat dengan catatan Week 1-8.');
+
+  // 11. Uji Error Handling: Status tidak valid ditolak (400 Bad Request)
+  const invalidStatus = await request(`/barang/${lostId}/status`, {
+    method: 'PATCH', token: tokenOwner, body: { status: 'StatusTidakValid123' }
+  });
+  assert.equal(invalidStatus.status, 400);
+
+  // 12. Uji Error Handling: ID barang tidak ditemukan (404 Not Found)
+  const notFound = await request('/barang/999999/status', {
+    method: 'PATCH', token: tokenOwner, body: { status: 'Belum Terselesaikan' }
+  });
+  assert.equal(notFound.status, 404);
+});

@@ -24,10 +24,13 @@ const normalizeBarang = (item = {}) => {
   if (status === 'Hilang') status = 'Belum Ditemukan';
   if (status === 'Ditemukan') status = 'Menunggu Pemilik';
   if (status === 'Dikembalikan') status = 'Selesai Dikembalikan';
-  if (item.verificationStatus === 'Terverifikasi' && status !== 'Selesai Dikembalikan') {
+  if (status === 'Menunggu Verifikasi') {
+    status = jenisLaporan === 'Ditemukan' ? 'Menunggu Pemilik' : 'Belum Ditemukan';
+  }
+  if (item.verificationStatus === 'Terverifikasi' && status !== 'Selesai Dikembalikan' && status !== 'Belum Terselesaikan') {
     status = 'Menunggu Pengambilan';
   }
-  if (!['Belum Ditemukan', 'Menunggu Pemilik', 'Menunggu Pengambilan', 'Selesai Dikembalikan'].includes(status)) {
+  if (!['Belum Ditemukan', 'Menunggu Pemilik', 'Menunggu Verifikasi', 'Menunggu Pengambilan', 'Selesai Dikembalikan', 'Belum Terselesaikan'].includes(status)) {
     status = jenisLaporan === 'Hilang' ? 'Belum Ditemukan' : 'Menunggu Pemilik';
   }
   return { ...item, jenisLaporan, status };
@@ -318,8 +321,56 @@ function createApp({dataDir=path.join(__dirname,'data'),secret}={}) {
       }
       if(req.method==='PATCH'&&match[2]==='status'){
         if(b.ownerId!==auth.user.id)return send(403,{message:'Hanya pembuat laporan yang dapat memperbarui status.'});
-        if(!['Selesai Dikembalikan','Dikembalikan'].includes(body.status)||b.verificationStatus!=='Terverifikasi')return send(400,{message:'Barang harus terverifikasi sebelum status penanganan diselesaikan.'});
-        b.status='Selesai Dikembalikan';save();return send(200,{data:publicBarang(b)});
+        const targetStatus = body.status;
+        if(['Selesai Dikembalikan','Dikembalikan'].includes(targetStatus)){
+          if(b.verificationStatus!=='Terverifikasi')return send(400,{message:'Barang harus terverifikasi sebelum status penanganan diselesaikan.'});
+          b.status='Selesai Dikembalikan';
+        } else if(targetStatus === 'Belum Terselesaikan'){
+          b.status='Belum Terselesaikan';
+        } else if(targetStatus === 'Menunggu Pengambilan'){
+          if(b.verificationStatus!=='Terverifikasi')return send(400,{message:'Barang harus terverifikasi sebelum menunggu pengambilan.'});
+          b.status='Menunggu Pengambilan';
+        } else if(targetStatus === 'Menunggu Verifikasi'){
+          b.status = b.jenisLaporan === 'Hilang' ? 'Belum Ditemukan' : 'Menunggu Pemilik';
+        } else if(['Belum Ditemukan','Menunggu Pemilik'].includes(targetStatus)){
+          b.status = targetStatus;
+        } else {
+          return send(400,{message:`Status "${targetStatus}" tidak valid.`});
+        }
+        save();
+        return send(200,{data:publicBarang(b),message:`Status laporan berhasil diperbarui menjadi ${b.status}.`});
+      }
+      if(req.method==='PATCH'&&!match[2]){
+        if(b.ownerId!==auth.user.id)return send(403,{message:'Hanya pembuat laporan yang dapat memperbarui informasi barang.'});
+        if(body.nama!==undefined){
+          if(!validStr(body.nama,2,80))return send(400,{message:'Nama barang harus 2-80 karakter.'});
+          b.nama=body.nama.trim();
+        }
+        if(body.lokasi!==undefined){
+          if(!validStr(body.lokasi,2,100))return send(400,{message:'Lokasi harus 2-100 karakter.'});
+          b.lokasi=body.lokasi.trim();
+        }
+        if(body.deskripsi!==undefined){
+          if(!validStr(body.deskripsi,3,500))return send(400,{message:'Deskripsi harus 3-500 karakter.'});
+          b.deskripsi=body.deskripsi.trim();
+        }
+        if(body.kategori!==undefined){
+          if(!categories.includes(body.kategori))return send(400,{message:'Kategori tidak valid.'});
+          b.kategori=body.kategori;
+        }
+        if(body.status!==undefined){
+          const targetStatus = body.status;
+          if(['Selesai Dikembalikan','Dikembalikan'].includes(targetStatus)){
+            if(b.verificationStatus!=='Terverifikasi')return send(400,{message:'Barang harus terverifikasi sebelum status penanganan diselesaikan.'});
+            b.status='Selesai Dikembalikan';
+          } else if(targetStatus === 'Belum Terselesaikan'){
+            b.status='Belum Terselesaikan';
+          } else if(['Belum Ditemukan','Menunggu Pemilik','Menunggu Pengambilan'].includes(targetStatus)){
+            b.status=targetStatus;
+          }
+        }
+        save();
+        return send(200,{data:publicBarang(b),message:'Informasi laporan barang berhasil diperbarui.'});
       }
     }
     return send(404,{message:'Endpoint tidak ditemukan.'});

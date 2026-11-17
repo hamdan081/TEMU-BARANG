@@ -16,8 +16,10 @@ export const reportTypes = ['Hilang', 'Ditemukan'];
 export const handlingStatuses = [
   'Belum Ditemukan',
   'Menunggu Pemilik',
+  'Menunggu Verifikasi',
   'Menunggu Pengambilan',
   'Selesai Dikembalikan',
+  'Belum Terselesaikan',
 ];
 
 export function normalizeBarangStatus(status, jenisLaporan, verificationStatus) {
@@ -26,7 +28,10 @@ export function normalizeBarangStatus(status, jenisLaporan, verificationStatus) 
   if (legacy === 'Hilang') normalized = 'Belum Ditemukan';
   if (legacy === 'Ditemukan') normalized = 'Menunggu Pemilik';
   if (legacy === 'Dikembalikan') normalized = 'Selesai Dikembalikan';
-  if (verificationStatus === 'Terverifikasi' && normalized !== 'Selesai Dikembalikan') {
+  if (legacy === 'Menunggu Verifikasi') {
+    normalized = jenisLaporan === 'Ditemukan' ? 'Menunggu Pemilik' : 'Belum Ditemukan';
+  }
+  if (verificationStatus === 'Terverifikasi' && normalized !== 'Selesai Dikembalikan' && normalized !== 'Belum Terselesaikan') {
     normalized = 'Menunggu Pengambilan';
   }
   return handlingStatuses.includes(normalized)
