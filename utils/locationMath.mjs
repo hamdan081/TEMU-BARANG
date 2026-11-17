@@ -45,6 +45,21 @@ export function hasValidCoordinates(value) {
 }
 
 export function formatCoordinate(value) {
+  if (value === null || value === undefined || value === '') return '-';
   const number = Number(value);
   return Number.isFinite(number) ? number.toFixed(6) : '-';
+}
+
+export function isValidAccuracy(accuracy) {
+  if (accuracy === null || accuracy === undefined || accuracy === '') return false;
+  const num = Number(accuracy);
+  return Number.isFinite(num) && num >= 0;
+}
+
+export function formatAccuracy(accuracy) {
+  if (!isValidAccuracy(accuracy)) return 'Tidak tersedia';
+  const rounded = Math.round(Number(accuracy));
+  if (rounded <= 30) return `±${rounded} meter (Sangat Baik)`;
+  if (rounded <= 100) return `±${rounded} meter (Cukup)`;
+  return `±${rounded} meter (Rendah)`;
 }
