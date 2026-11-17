@@ -4,6 +4,7 @@
 import React,{useEffect,useState} from 'react';
 import {StyleSheet,Text,View} from 'react-native';
 import {GRAVITY_MS2} from '../../hooks/useAccelerometer';
+import { theme } from '../../theme';
 
 const AXES=[
  {key:'x',label:'X (Kiri-Kanan)',color:'#DC2626',background:'#FEF2F2'},
@@ -67,31 +68,31 @@ export default function SensorDashboard({sample,active}){
    <Text style={styles.legendText}>{axis.label.split(' ')[0]}</Text>
   </View>)}</View>
 
-  <Text style={styles.hint}>Data dibaca langsung dari chip accelerometer perangkat setiap 150 ms (bukan simulasi mock atau REST API).</Text>
+  <Text style={styles.hint}>Data dibaca langsung dari chip accelerometer perangkat setiap 200 ms (bukan simulasi mock atau REST API).</Text>
  </View>;
 }
 
 const styles=StyleSheet.create({
- panel:{backgroundColor:'#FFF',borderColor:'#DCE6F2',borderWidth:1,borderRadius:16,padding:17,gap:9},
- headerRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},
- subtitle:{fontSize:16,fontWeight:'800',color:'#15335A'},
- badge:{backgroundColor:'#EFF6FF',paddingHorizontal:8,paddingVertical:3,borderRadius:6,borderWidth:1,borderColor:'#BFDBFE'},
- badgeText:{fontSize:11,fontWeight:'700',color:'#1D4ED8'},
- hint:{fontSize:12,lineHeight:19,color:'#64748B'},
+ panel:{backgroundColor:'#FFFFFF',borderColor:theme.colors.border,borderWidth:1,borderRadius:18,padding:16,gap:9,...theme.shadow.card},
+ headerRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:8},
+ subtitle:{fontSize:14,fontWeight:'900',color:theme.colors.text,flex:1},
+ badge:{backgroundColor:theme.colors.primarySoft,paddingHorizontal:9,paddingVertical:6,borderRadius:8},
+ badgeText:{fontSize:9,fontWeight:'800',color:theme.colors.primary},
+ hint:{fontSize:10,lineHeight:17,color:'#7B899B'},
  cards:{flexDirection:'row',gap:8,marginTop:3},
- card:{flex:1,alignItems:'center',borderRadius:12,paddingVertical:12,paddingHorizontal:4,minWidth:0},
- axis:{fontSize:16,fontWeight:'900'},
- axisDesc:{fontSize:9,fontWeight:'600',opacity:0.85,marginBottom:2},
- reading:{fontSize:21,fontWeight:'900',marginTop:4},
- unit:{fontSize:11,fontWeight:'600',marginTop:2},
- chartTitle:{marginTop:10,fontSize:14,fontWeight:'800',color:'#15335A'},
- chart:{height:128,backgroundColor:'#F8FAFC',borderRadius:12,borderWidth:1,borderColor:'#E2E8F0',flexDirection:'row',alignItems:'stretch',paddingVertical:10,paddingHorizontal:8,overflow:'hidden'},
- axisLine:{position:'absolute',left:0,right:0,top:'50%',height:1,backgroundColor:'#CBD5E1'},
+ card:{flex:1,alignItems:'center',borderRadius:13,paddingVertical:12,paddingHorizontal:4,minWidth:0},
+ axis:{fontSize:15,fontWeight:'900'},
+ axisDesc:{fontSize:8,fontWeight:'700',opacity:0.85,marginBottom:2},
+ reading:{fontSize:20,fontWeight:'900',marginTop:4},
+ unit:{fontSize:9,fontWeight:'700',marginTop:2},
+ chartTitle:{marginTop:9,fontSize:12,fontWeight:'900',color:theme.colors.text},
+ chart:{height:128,backgroundColor:'#F7F9FC',borderRadius:13,borderWidth:1,borderColor:'#E8EDF4',flexDirection:'row',alignItems:'stretch',paddingVertical:10,paddingHorizontal:8,overflow:'hidden'},
+ axisLine:{position:'absolute',left:0,right:0,top:'50%',height:1,backgroundColor:'#D8E0EA'},
  chartColumn:{flex:1,position:'relative',height:'100%'},
  dot:{width:5,height:5,borderRadius:3,position:'absolute',alignSelf:'center'},
- placeholder:{color:'#94A3B8',textAlign:'center',alignSelf:'center',fontSize:12,lineHeight:19,flex:1},
+ placeholder:{color:'#98A4B3',textAlign:'center',alignSelf:'center',fontSize:10,lineHeight:17,flex:1},
  legend:{flexDirection:'row',gap:14,justifyContent:'center'},
  legendItem:{flexDirection:'row',alignItems:'center',gap:5},
  legendDot:{width:8,height:8,borderRadius:5},
- legendText:{color:'#475569',fontWeight:'700',fontSize:12}
+ legendText:{color:'#64748B',fontWeight:'800',fontSize:10}
 });

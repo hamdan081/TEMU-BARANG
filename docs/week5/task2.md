@@ -1,6 +1,6 @@
 ﻿# Week 5 Task 02 — Attach Token to API Request
 
-**Aplikasi:** TemuKampus (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
+**Aplikasi:** TemuBarang (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
 **Pelaksana (Orang 2):** Firman (`frmaannn` / `firmanvirdauz@gmail.com`)  
 **Tanggung Jawab:** React Native Developer, REST API Security Developer, dan Git Specialist  
 **Fokus:** Mengambil access token JWT dari Expo SecureStore, menyematkannya ke header HTTP menggunakan skema `Authorization: Bearer <access_token>`, mengakses protected REST API endpoint (`GET /barang`), memvalidasi respons status HTTP (401 Unauthorized & 403 Forbidden), serta mapping data ke Data Model Barang tanpa membocorkan token.
@@ -11,7 +11,7 @@
 
 Access token **tidak pernah disimpan di AsyncStorage** atau di-hardcode dalam kode sumber. Token diambil secara asinkron dari hardware secure storage perangkat menggunakan `expo-secure-store`.
 
-Implementasi pada [`storage/session.js`](file:///c:/Pem.%20Mobile/Tugas/TemuKampus_Reaudit_Final/TemuKampus_Reaudit_Final/storage/session.js):
+Implementasi pada [`storage/session.js`](../../storage/session.js):
 
 ```javascript
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -27,7 +27,7 @@ export const getToken = () => SecureStore.getItemAsync(TOKEN_KEY);
 
 ## 2. Helper Pengiriman Request Terlindungi: `authenticatedFetch()`
 
-Pada [`services/api.js`](file:///c:/Pem.%20Mobile/Tugas/TemuKampus_Reaudit_Final/TemuKampus_Reaudit_Final/services/api.js), fungsi `authenticatedFetch()` bertindak sebagai wrapper resmi untuk memanggil endpoint terlindungi (*protected endpoints*):
+Pada [`services/api.js`](../../services/api.js), fungsi `authenticatedFetch()` bertindak sebagai wrapper resmi untuk memanggil endpoint terlindungi (*protected endpoints*):
 
 ```javascript
 /**
@@ -166,7 +166,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsImp0aSI6I
 
 ## 5. Integrasi `fetchBarang()` & Mapping ke Data Model Barang
 
-Fungsi `fetchBarang()` memanggil `authenticatedFetch('/barang')` dan memetakan setiap objek JSON menggunakan mapper DTO `mapBarang()` dari [`models/Barang.js`](file:///c:/Pem.%20Mobile/Tugas/TemuKampus_Reaudit_Final/TemuKampus_Reaudit_Final/models/Barang.js):
+Fungsi `fetchBarang()` memanggil `authenticatedFetch('/barang')` dan memetakan setiap objek JSON menggunakan mapper DTO `mapBarang()` dari [`models/Barang.js`](../../models/Barang.js):
 
 ```javascript
 export const fetchBarang = async () => {
@@ -176,7 +176,7 @@ export const fetchBarang = async () => {
 };
 ```
 
-Pada UI ([`App.js`](file:///c:/Pem.%20Mobile/Tugas/TemuKampus_Reaudit_Final/TemuKampus_Reaudit_Final/App.js)), saat pengguna berhasil login atau me-refresh daftar:
+Pada UI ([`App.js`](../../App.js)), saat pengguna berhasil login atau me-refresh daftar:
 - Fungsi `refreshItems()` mengeksekusi `fetchBarang()`.
 - Jika menerima HTTP 401, error guard `handleUnauthorized()` otomatis membersihkan session di SecureStore dan mengarahkan pengguna kembali ke layar Login.
 - Data yang diterima berhasil di-render ke dalam `FlatList` di layar Daftar Barang.
@@ -235,6 +235,6 @@ node --test server/server.test.js
 
 ---
 
-## Addendum Week 8 — status penanganan pada REST API
+## Addendum Week 9 — status penanganan pada REST API
 
-Endpoint tetap menggunakan `GET /barang`, `POST /barang`, dan `PATCH /barang/:id/status`. Pada format aktif, `jenisLaporan` menunjukkan `Hilang` atau `Ditemukan`, sedangkan `status` menunjukkan proses penanganan. PATCH menetapkan status `Selesai Dikembalikan` setelah verifikasi berhasil dan pelapor mengonfirmasi barang telah diterima. Contoh payload lama pada bagian sebelumnya tetap dicatat sebagai materi awal; kontrak terbaru dijelaskan pada `docs/week8/task1.md`.
+Endpoint tetap menggunakan `GET /barang`, `POST /barang`, dan `PATCH /barang/:id/status`. Pada format aktif, `jenisLaporan` menunjukkan `Hilang` atau `Ditemukan`, sedangkan `status` menunjukkan proses penanganan. PATCH menetapkan status `Selesai Dikembalikan` setelah verifikasi berhasil dan pelapor mengonfirmasi barang telah diterima. Contoh payload lama pada bagian sebelumnya tetap dicatat sebagai materi awal; kontrak terbaru dijelaskan pada `docs/week9/task1.md`.

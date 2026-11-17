@@ -1,6 +1,6 @@
 # Week 4 Task 01 — Model The Data
 
-**Aplikasi:** TemuKampus (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
+**Aplikasi:** TemuBarang (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
 **Pelaksana (Orang 1):** Hamdan (`hamdan081` / `hamdanjulfa698@gmail.com`)  
 **Fokus:** Menentukan resource, struktur field, tipe data, implementasi Data Model / DTO (`models/Barang.js`), serta representasi JSON Object & Array.
 
@@ -8,7 +8,7 @@
 
 ## 1. Resource Utama: `Barang`
 
-Resource utama pada aplikasi TemuKampus adalah **Barang**, yang merepresentasikan setiap item yang dilaporkan baik dalam status **Hilang** (*lost item*) maupun **Ditemukan** (*found item*) di area kampus.
+Resource utama pada aplikasi TemuBarang adalah **Barang**, yang merepresentasikan setiap item yang dilaporkan baik dalam status **Hilang** (*lost item*) maupun **Ditemukan** (*found item*) di area kampus.
 
 ### Tabel Spesifikasi Field & Tipe Data
 
@@ -30,7 +30,7 @@ Resource utama pada aplikasi TemuKampus adalah **Barang**, yang merepresentasika
 
 ## 2. Implementasi Model & DTO (`models/Barang.js`)
 
-Implementasi model di [`models/Barang.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/models/Barang.js) dirancang dengan pendekatan gabungan:
+Implementasi model di [`models/Barang.js`](../../models/Barang.js) dirancang dengan pendekatan gabungan:
 1. **Class-based OOP Model (`Barang`)**: Memiliki constructor dengan nilai default defensif, method serialisasi `toJSON()`, dan static factory `fromJSON(json)`.
 2. **DTO Mapper Function (`mapBarang`)**: Memastikan data mentah dari API (`GET /barang` atau response `POST /barang`) memiliki tipe data yang konsisten (string sanitization, number conversion, null-safety) sebelum dikonsumsi oleh komponen UI (`FlatList`, `ItemCard`, dsb).
 3. **Kategori Standar (`categories`)**: Ekspor daftar kategori resmi kampus untuk filter dan form pembuatan laporan.
@@ -169,6 +169,23 @@ Implementasi model di [`models/Barang.js`](file:///c:/A%20PENTING/TUGAS%20SEMEST
 
 ---
 
-## Addendum Week 8 — pemisahan jenis laporan dan status penanganan
+## Addendum Week 9 — pemisahan jenis laporan dan status penanganan
 
-Pada pengembangan Week 8, field `status` diperjelas agar tidak mencampur jenis laporan dengan perkembangan penanganan. Field `jenisLaporan` sekarang berisi `Hilang` atau `Ditemukan`, sedangkan `status` berisi `Belum Ditemukan`, `Menunggu Pemilik`, `Menunggu Pengambilan`, atau `Selesai Dikembalikan`. Contoh JSON di bagian atas dokumen ini merupakan contoh struktur sebelum penyesuaian Week 8; struktur aktif dapat dilihat pada `models/Barang.js` dan `README.md`.
+Pada pengembangan Week 9, field `status` diperjelas agar tidak mencampur jenis laporan dengan perkembangan penanganan. Field `jenisLaporan` sekarang berisi `Hilang` atau `Ditemukan`, sedangkan `status` berisi `Belum Ditemukan`, `Menunggu Pemilik`, `Menunggu Pengambilan`, atau `Selesai Dikembalikan`. Contoh JSON di bagian atas dokumen ini merupakan contoh struktur sebelum penyesuaian Week 9; struktur aktif dapat dilihat pada `models/Barang.js` dan `README.md`.
+
+
+## Struktur DTO aktif (setelah penyesuaian Week 9)
+
+Contoh JSON historis di bagian atas dokumen menunjukkan format awal. Model aktif di `models/Barang.js` memisahkan jenis laporan dan status penanganan:
+
+| Field aktif | Nilai/tipe |
+|---|---|
+| `jenisLaporan` | `Hilang` atau `Ditemukan` |
+| `status` | `Belum Ditemukan`, `Menunggu Pemilik`, `Menunggu Pengambilan`, `Selesai Dikembalikan` |
+| `latitude`, `longitude` | Number atau `null` |
+| `accuracy` | Number atau `null` |
+| `alamat` | String |
+| `matchedReportId`, `matchedAt` | ID/timestamp pasangan atau `null` |
+| `locationPrecision` | `precise` atau `approximate` |
+
+Gunakan `Barang.fromJSON()`/`mapBarang()` untuk memetakan data API sebelum dipakai UI. Jangan menggunakan lagi nilai lama `status: Hilang/Ditemukan/Dikembalikan` sebagai kontrak API aktif; nilai tersebut hanya dikenali oleh fungsi normalisasi data legacy.

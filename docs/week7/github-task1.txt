@@ -1,17 +1,26 @@
-PROMPT GITHUB — WEEK 7 TASK 01 (CONNECT TEMUKAMPUS TO SENSOR)
+PROMPT GITHUB — WEEK 7 TASK 01: CONNECT DEVICE SENSOR
 
-Bertindak sebagai developer React Native + Expo dan Git specialist. Saya memiliki repository GitHub proyek TemuKampus yang sebelumnya belum berisi pengerjaan Week 7. Terapkan HANYA perubahan Week 7 Task 01 dari berkas `week7-task1.patch` ke branch aktif repository asli. Jangan ubah atau hapus pekerjaan Week 1–6, data pengguna, atau file konfigurasi rahasia.
+Anda bertindak sebagai React Native + Expo Developer yang mengerjakan Task 01 Week 7 pada aplikasi TemuBarang.
 
-Target Task 01: integrasikan `expo-sensors@~57.0.3`, tambahkan tab Sensor pada aplikasi TemuKampus, minta izin ketika tombol Mulai Sensor ditekan, baca accelerometer X/Y/Z secara real-time, tampilkan pada layar dan console Metro, lalu bersihkan listener ketika berhenti/halaman ditutup. Tinjau file `hooks/useAccelerometer.js`, `components/sensors/SensorScreen.js`, `App.js`, `components/BottomNav.js`, `package.json`, `package-lock.json`, `app.json`, dan `docs/week7/task1.md`.
+Repository: https://github.com/hamdan081/TEMU-BARANG
+Branch yang disarankan: week7/anggota-1-accelerometer
 
-Prosedur Git yang diminta:
-1. Jalankan `git status --short` dan `git branch --show-current`; jangan lanjut jika ada perubahan tak terkait yang berisiko tertimpa.
-2. Pastikan patch disalin ke root repo; jalankan `git apply --check week7-task1.patch`, lalu `git apply week7-task1.patch`.
-3. Jalankan `npm install` (dengan internet) untuk menyinkronkan lockfile, lalu cek instalasi dan sintaks. Uji aplikasi pada ponsel Expo SDK 57 bila tersedia.
-4. Review `git diff --check` dan `git diff`. Pastikan `.env`, `server/data/`, `.git`, dan `node_modules/` tidak ikut ter-commit.
-5. Stage hanya perubahan Task 01: `git add App.js components/BottomNav.js components/sensors/SensorScreen.js hooks/useAccelerometer.js package.json package-lock.json app.json docs/week7/task1.md`.
-6. Jalankan `git commit -m "feat(week7-task1): connect TemuKampus to accelerometer"`.
-7. Pastikan remote `origin` mengarah ke repository saya; jalankan `git push -u origin HEAD` tanpa force-push.
-8. Laporkan SHA commit, nama branch, dan hasil push. Jika belum login GitHub atau push gagal, jangan mengklaim berhasil.
+Ruang lingkup:
+1. Periksa implementasi Accelerometer menggunakan expo-sensors.
+2. Minta izin sensor saat pengguna menekan tombol Aktifkan Pengaman Meja.
+3. Periksa apakah Accelerometer tersedia pada perangkat.
+4. Baca nilai X, Y, Z secara real-time dan tampilkan dengan satuan yang benar.
+5. Bersihkan listener ketika sensor dihentikan atau komponen dilepas.
+6. Pertahankan desain dan navigasi TemuBarang; fitur sensor berada di Menu Lainnya > Pengaman Meja.
 
-Jangan menjalankan Task 02 atau 03 dulu. Untuk commit terpisah, jangan menyalin ZIP final yang sudah berisi ketiga task sebelum menjalankan patch Task 01.
+File utama: hooks/useAccelerometer.js, components/sensors/SensorScreen.js, App.js, package.json, app.json.
+
+Git workflow:
+- Periksa git status dan branch aktif.
+- Tarik main terbaru sebelum membuat branch.
+- Jangan mengubah fitur di luar Task 01.
+- Jalankan pengujian yang relevan dan uji sensor pada smartphone jika tersedia.
+- Commit: feat(week7): connect accelerometer to TemuBarang
+- Push branch dan buat Pull Request ke main; jangan force-push.
+
+Laporkan file yang diubah, hasil test yang benar-benar dijalankan, commit SHA, branch, dan URL Pull Request. Jangan mengklaim uji perangkat jika belum dilakukan.

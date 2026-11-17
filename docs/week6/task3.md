@@ -1,23 +1,23 @@
 # Week 6 Task 03 — Handle Offline
 
-**Aplikasi:** TemuKampus (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
+**Aplikasi:** TemuBarang (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
 **Pelaksana (Orang 3):** fawwaz (`fawwaz` / `icamrz8@gmail.com`)  
 **Tanggung Jawab:** Senior React Native Developer, Expo Developer, Network Connectivity Specialist, Software Tester, dan Git Specialist  
-**Fokus Utama:** Mengimplementasikan mekanisme penanganan offline (*Offline Handling*) secara komprehensif pada aplikasi TemuKampus sehingga aplikasi dapat mendeteksi kondisi ketiadaan koneksi internet, membedakannya secara akurat dari kegagalan server lokal, memberikan umpan balik visual (*Offline State UI* & *Offline Banner*), melindungi integritas input formulir laporan, dan menyediakan mekanisme *Retry* setelah koneksi internet kembali tersedia.
+**Fokus Utama:** Mengimplementasikan mekanisme penanganan offline (*Offline Handling*) secara komprehensif pada aplikasi TemuBarang sehingga aplikasi dapat mendeteksi kondisi ketiadaan koneksi internet, membedakannya secara akurat dari kegagalan server lokal, memberikan umpan balik visual (*Offline State UI* & *Offline Banner*), melindungi integritas input formulir laporan, dan menyediakan mekanisme *Retry* setelah koneksi internet kembali tersedia.
 
 ---
 
 ## 1. Network Connectivity & NetInfo Integration
 
 ### 1.1 Library yang Digunakan
-Sesuai standar Expo SDK 57 dan React Native, library resmi yang digunakan adalah:
+Project menggunakan Expo SDK 58 dan React Native sesuai versi yang tercantum pada `package.json`; library konektivitas yang digunakan adalah:
 ```text
 @react-native-community/netinfo: 12.0.1
 ```
-Library ini telah terpasang di `package.json` dan diverifikasi kompatibel penuh dengan runtime Expo Go maupun standalone production bundle (Hermes bytecode).
+Library ini tercantum pada `package.json`. Kesesuaian runtime tetap perlu dikonfirmasi setelah `npm install` dan uji pada Expo Go/perangkat target.
 
 ### 1.2 Listener & Initial Fetch
-Pada [`App.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/App.js), status jaringan dipantau secara real-time menggunakan listener yang dibersihkan (*cleanup function*) ketika komponen di-unmount:
+Pada [`App.js`](../../App.js), status jaringan dipantau secara real-time menggunakan listener yang dibersihkan (*cleanup function*) ketika komponen di-unmount:
 
 ```javascript
 useEffect(() => {
@@ -46,7 +46,7 @@ Sesuai instruksi dan panduan pengujian PPT Dosen, aplikasi membedakan secara teg
 | Kondisi | Indikator | Ikon | Judul Error | Pesan yang Ditampilkan |
 | :--- | :--- | :---: | :--- | :--- |
 | **1. Perangkat Offline** | `!isOnline` (Wi-Fi/seluler mati) | `📡🚫` | **Tidak Ada Koneksi Internet** | *Periksa koneksi Anda dan coba lagi.* |
-| **2. Server Tidak Terjangkau** | Wi-Fi aktif, port lokal backend mati / DNS gagal | `🔌` | **Server Tidak Terjangkau** | *Perangkat terhubung ke jaringan, tetapi server API TemuKampus tidak dapat dijangkau. Pastikan server lokal aktif.* |
+| **2. Server Tidak Terjangkau** | Wi-Fi aktif, port lokal backend mati / DNS gagal | `🔌` | **Server Tidak Terjangkau** | *Perangkat terhubung ke jaringan, tetapi server API TemuBarang tidak dapat dijangkau. Pastikan server lokal aktif.* |
 | **3. Request Timeout** | AbortController trigger (15 detik) | `⏱️` | **Koneksi Waktu Habis** | *Server membutuhkan waktu terlalu lama untuk merespons. Periksa koneksi Anda dan coba lagi.* |
 | **4. Server Error (HTTP 5xx)** | Respon HTTP 500, 502, 503 | `🖥️` | **Gangguan Server** | *Terjadi kesalahan pada server (5xx). Silakan coba lagi nanti.* |
 
@@ -91,7 +91,7 @@ Ketika tombol **"Coba Lagi"** ditekan oleh pengguna:
 
 ---
 
-## 5. Integrasi Fitur TemuKampus & Preservasi Formulir
+## 5. Integrasi Fitur TemuBarang & Preservasi Formulir
 
 ### 5.1 Daftar Barang & Barang Terbaru
 - Menampilkan `LoadingStateView` saat awal memuat.
@@ -124,7 +124,7 @@ Sesuai syarat ketat Task 03:
 
 | Langkah | Aksi | Hasil yang Diamati | Status |
 | :---: | :--- | :--- | :---: |
-| 1 | Jalankan aplikasi TemuKampus | Aplikasi terbuka normal | **PASS** |
+| 1 | Jalankan aplikasi TemuBarang | Aplikasi terbuka normal | **PASS** |
 | 2 | Koneksi internet aktif | Header dan banner normal | **PASS** |
 | 3 | Buka halaman Daftar Barang | Halaman daftar terbuka | **PASS** |
 | 4 | Ambil data dari REST API | Data barang (4 item) berhasil dimuat | **PASS** |
@@ -156,15 +156,15 @@ Sesuai syarat ketat Task 03:
 
 ## 8. File yang Diubah
 
-1. [`package.json`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/package.json): Menambahkan dependensi `@react-native-community/netinfo: 12.0.1`.
-2. [`package-lock.json`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/package-lock.json): Lockfile dependency resolution.
-3. [`App.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/App.js):
+1. [`package.json`](../../package.json): Menambahkan dependensi `@react-native-community/netinfo: 12.0.1`.
+2. [`package-lock.json`](../../package-lock.json): Lockfile dependency resolution.
+3. [`App.js`](../../App.js):
    - Listener NetInfo real-time (`addEventListener` dan `NetInfo.fetch()`).
    - Komponen `LoadingStateView`, `ErrorStateView`, dan `EmptyStateView`.
    - Banner `offlineBanner` terpadu.
    - Guard `handleRetry` terhadap koneksi dan in-flight duplicates.
    - Pencegahan reset form/foto pada `submitReport` saat offline.
    - Styling terpadu dan penambahan accessibility props.
-4. [`server/server.test.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/server/server.test.js): Menambahkan test suite Week 6 Task 02 & Task 03.
-5. [`docs/week6/task2.md`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/docs/week6/task2.md): Dokumentasi implementasi Week 6 Task 02 (Loading, Error & Retry).
-6. [`docs/week6/task3.md`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/docs/week6/task3.md): Dokumentasi implementasi Week 6 Task 03 (Handle Offline).
+4. [`server/server.test.js`](../../server/server.test.js): Menambahkan test suite Week 6 Task 02 & Task 03.
+5. [`docs/week6/task2.md`](task2.md): Dokumentasi implementasi Week 6 Task 02 (Loading, Error & Retry).
+6. [`docs/week6/task3.md`](task3.md): Dokumentasi implementasi Week 6 Task 03 (Handle Offline).

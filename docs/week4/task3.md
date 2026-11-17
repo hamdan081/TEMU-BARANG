@@ -1,9 +1,9 @@
 # Week 4 Task 03 — Display API Data
 
-**Aplikasi:** TemuKampus (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
+**Aplikasi:** TemuBarang (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
 **Pelaksana (Orang 3):** Fawwaz (`fawwaz` / `icamrz8@gmail.com`)  
 **Tanggung Jawab:** Front-End Developer, API Integration Developer & Git Specialist  
-**Fokus:** Menampilkan data REST API pada antarmuka pengguna (UI) TemuKampus sehingga daftar barang menjadi dinamis menggunakan FlatList, menghubungkan hasil Data Model dari Task 01 dan REST API Client dari Task 02.
+**Fokus:** Menampilkan data REST API pada antarmuka pengguna (UI) TemuBarang sehingga daftar barang menjadi dinamis menggunakan FlatList, menghubungkan hasil Data Model dari Task 01 dan REST API Client dari Task 02.
 
 ---
 
@@ -27,14 +27,14 @@ Hasil integrasi mencakup:
 
 | File | Status | Peran & Perubahan |
 |---|---|---|
-| [`App.js`](file:///c:/Users/LENOVO/Downloads/TemuKampus_Reaudit_Final/TEMU-BARANG/App.js) | Dimodifikasi | Menyimpan state API (`items`, `loadingItems`, `itemsError`, dsb), fungsi `refreshItems()`, implementasi `FlatList` pada tab Daftar, integrasi modal/layar Detail Barang, serta pemfilteran dinamis. |
-| [`components/ItemCard.js`](file:///c:/Users/LENOVO/Downloads/TemuKampus_Reaudit_Final/TEMU-BARANG/components/ItemCard.js) | Dibuat | Komponen card item untuk `FlatList` dan `LatestItems`. Menampilkan nama, kategori, lokasi, tanggal, status badge, foto dengan `resolveImageUrl` & fallback emoji box, serta label accessibility. |
-| [`components/LatestItems.js`](file:///c:/Users/LENOVO/Downloads/TemuKampus_Reaudit_Final/TEMU-BARANG/components/LatestItems.js) | Dimodifikasi | Menghapus data hard-coded (Dompet Hitam & Kunci Motor statis). Menerima props `{ items, onOpen, onViewAll }` dan merender card dinamis dari 3 data terbaru API beserta fallback empty state. |
-| [`components/CategoryList.js`](file:///c:/Users/LENOVO/Downloads/TemuKampus_Reaudit_Final/TEMU-BARANG/components/CategoryList.js) | Dimodifikasi | Menggunakan daftar kategori dari `models/Barang.js`, mendukung interaksi `onSelect(category)` untuk memfilter daftar barang secara dinamis. |
-| [`components/ActionMenu.js`](file:///c:/Users/LENOVO/Downloads/TemuKampus_Reaudit_Final/TEMU-BARANG/components/ActionMenu.js) | Dimodifikasi | Mendukung callback navigasi pelaporan cepat (`onLost`, `onFound`). |
-| [`components/BottomNav.js`](file:///c:/Users/LENOVO/Downloads/TemuKampus_Reaudit_Final/TEMU-BARANG/components/BottomNav.js) | Dimodifikasi | Navigasi tab interaktif (Beranda, Daftar, Lapor, Profil) dengan state aktif. |
-| [`components/SearchBar.js`](file:///c:/Users/LENOVO/Downloads/TemuKampus_Reaudit_Final/TEMU-BARANG/components/SearchBar.js) | Dimodifikasi | Menerima value dan event `onChangeText` untuk pencarian realtime pada `FlatList`. |
-| [`docs/week4/task3.md`](file:///c:/Users/LENOVO/Downloads/TemuKampus_Reaudit_Final/TEMU-BARANG/docs/week4/task3.md) | Dibuat | Dokumentasi lengkap implementasi Task 03 ini. |
+| [`App.js`](../../App.js) | Dimodifikasi | Menyimpan state API (`items`, `loadingItems`, `itemsError`, dsb), fungsi `refreshItems()`, implementasi `FlatList` pada tab Daftar, integrasi modal/layar Detail Barang, serta pemfilteran dinamis. |
+| [`components/ItemCard.js`](../../components/ItemCard.js) | Dibuat | Komponen card item untuk `FlatList` dan `LatestItems`. Menampilkan nama, kategori, lokasi, tanggal, status badge, foto dengan `resolveImageUrl` & fallback emoji box, serta label accessibility. |
+| [`components/LatestItems.js`](../../components/LatestItems.js) | Dimodifikasi | Menghapus data hard-coded (Dompet Hitam & Kunci Motor statis). Menerima props `{ items, onOpen, onViewAll }` dan merender card dinamis dari 3 data terbaru API beserta fallback empty state. |
+| [`components/CategoryList.js`](../../components/CategoryList.js) | Dimodifikasi | Menggunakan daftar kategori dari `models/Barang.js`, mendukung interaksi `onSelect(category)` untuk memfilter daftar barang secara dinamis. |
+| [`components/ActionMenu.js`](../../components/ActionMenu.js) | Dimodifikasi | Mendukung callback navigasi pelaporan cepat (`onLost`, `onFound`). |
+| [`components/BottomNav.js`](../../components/BottomNav.js) | Dimodifikasi | Navigasi tab interaktif (Beranda, Daftar, Lapor, Profil) dengan state aktif. |
+| [`components/SearchBar.js`](../../components/SearchBar.js) | Dimodifikasi | Menerima value dan event `onChangeText` untuk pencarian realtime pada `FlatList`. |
+| [`docs/week4/task3.md`](task3.md) | Dibuat | Dokumentasi lengkap implementasi Task 03 ini. |
 
 ---
 
@@ -169,6 +169,6 @@ Semua pengujian lolos (100% PASS).
 
 ---
 
-## Addendum Week 8 — badge kartu barang
+## Addendum Week 9 — badge kartu barang
 
 Kartu barang saat ini menampilkan dua informasi terpisah: badge jenis laporan (`Barang Hilang` / `Barang Ditemukan`) dan badge status penanganan (`Belum Ditemukan`, `Menunggu Pemilik`, `Menunggu Pengambilan`, `Selesai Dikembalikan`). Implementasinya berada di `components/ItemCard.js`.

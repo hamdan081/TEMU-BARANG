@@ -4,6 +4,7 @@
 import React from 'react';
 import {Pressable,StyleSheet,Text,View} from 'react-native';
 import useShakeDetection from '../../hooks/useShakeDetection';
+import { theme } from '../../theme';
 
 export default function SensorInteraction({sample,active,onReportLost}){
  const {shaking,count,threshold,lastAlertTime,incidents}=useShakeDetection(sample,active);
@@ -13,7 +14,7 @@ export default function SensorInteraction({sample,active,onReportLost}){
    <Text style={styles.title}>Alarm Deteksi Gerakan</Text>
    <View style={[styles.badge,shaking&&styles.badgeAlert]}>
     <Text style={[styles.badgeText,shaking&&styles.badgeAlertText]}>
-     {shaking?'🚨 ALARM':'Anti-Maling'}
+     {shaking?'🚨 ALARM':'Siaga Gerakan'}
     </Text>
    </View>
   </View>
@@ -64,11 +65,11 @@ export default function SensorInteraction({sample,active,onReportLost}){
    Ambang deteksi: perubahan percepatan ≥ {threshold.toFixed(2)} g antar-pembacaan, dengan jeda 2 detik untuk mencegah getaran berulang.
   </Text>
 
-  {/* Aksi Integrasi TemuKampus: Lapor Kehilangan Kilat jika barang digeser/hilang */}
+  {/* Aksi Integrasi TemuBarang: Lapor Kehilangan Kilat jika barang digeser/hilang */}
   {onReportLost && (count > 0 || shaking) && (
    <View style={styles.emergencyCard}>
     <Text style={styles.emergencyTitle}>Barang Anda benar-benar hilang atau diambil?</Text>
-    <Text style={styles.emergencyDesc}>Segera umumkan di TemuKampus agar mahasiswa lain dapat mengidentifikasi atau mengamankannya.</Text>
+    <Text style={styles.emergencyDesc}>Segera umumkan di TemuBarang agar mahasiswa lain dapat mengidentifikasi atau mengamankannya.</Text>
     <Pressable
      onPress={onReportLost}
      accessibilityRole="button"
@@ -82,36 +83,36 @@ export default function SensorInteraction({sample,active,onReportLost}){
 }
 
 const styles=StyleSheet.create({
- panel:{backgroundColor:'#fff',borderColor:'#DCE6F2',borderWidth:1,borderRadius:16,padding:17,gap:11},
- headerRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},
- title:{fontSize:16,fontWeight:'800',color:'#15335A'},
- badge:{backgroundColor:'#FEF2F2',paddingHorizontal:8,paddingVertical:3,borderRadius:6,borderWidth:1,borderColor:'#FECACA'},
- badgeText:{fontSize:11,fontWeight:'700',color:'#B91C1C'},
- badgeAlert:{backgroundColor:'#DC2626',borderColor:'#991B1B'},
+ panel:{backgroundColor:'#FFFFFF',borderColor:theme.colors.border,borderWidth:1,borderRadius:18,padding:16,gap:10,...theme.shadow.card},
+ headerRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:8},
+ title:{fontSize:14,fontWeight:'900',color:theme.colors.text,flex:1},
+ badge:{backgroundColor:theme.colors.warningSoft,paddingHorizontal:9,paddingVertical:6,borderRadius:8,borderWidth:1,borderColor:'#F1E2C4'},
+ badgeText:{fontSize:9,fontWeight:'900',color:theme.colors.warning},
+ badgeAlert:{backgroundColor:'#C83E52',borderColor:'#B9384B'},
  badgeAlertText:{color:'#FFFFFF'},
- description:{fontSize:12,lineHeight:19,color:'#64748B'},
- status:{padding:14,borderRadius:14,flexDirection:'row',alignItems:'center',gap:11},
- inactive:{backgroundColor:'#F1F5F9',borderWidth:1,borderColor:'#E2E8F0'},
- ready:{backgroundColor:'#ECFDF5',borderWidth:1,borderColor:'#A7F3D0'},
- alert:{backgroundColor:'#FFF1F2',borderWidth:2,borderColor:'#E11D48'},
- statusIcon:{fontSize:26},
+ description:{fontSize:11,lineHeight:18,color:'#718096'},
+ status:{padding:13,borderRadius:14,flexDirection:'row',alignItems:'center',gap:10},
+ inactive:{backgroundColor:'#F5F7FA',borderWidth:1,borderColor:'#E6EBF1'},
+ ready:{backgroundColor:theme.colors.successSoft,borderWidth:1,borderColor:'#D0EBDD'},
+ alert:{backgroundColor:theme.colors.dangerSoft,borderWidth:1,borderColor:'#F2D2D9'},
+ statusIcon:{fontSize:23},
  statusBody:{flex:1},
- statusText:{fontSize:15,fontWeight:'800'},
- inactiveText:{color:'#64748B'},
- readyText:{color:'#166534'},
- alertText:{color:'#BE123C'},
- caption:{fontSize:11,lineHeight:17,color:'#64748B',marginTop:3},
- statsRow:{flexDirection:'row',backgroundColor:'#F8FAFC',borderRadius:10,padding:10,gap:10},
+ statusText:{fontSize:13,fontWeight:'900'},
+ inactiveText:{color:'#68778C'},
+ readyText:{color:'#176B50'},
+ alertText:{color:'#B9384B'},
+ caption:{fontSize:10,lineHeight:16,color:'#738196',marginTop:3},
+ statsRow:{flexDirection:'row',backgroundColor:'#F7F9FC',borderRadius:12,padding:12,gap:10,borderWidth:1,borderColor:'#E9EEF4'},
  statItem:{flex:1},
- statLabel:{fontSize:11,color:'#64748B',fontWeight:'600'},
- statValue:{fontSize:14,fontWeight:'800',color:'#1E293B',marginTop:2},
- incidentBox:{backgroundColor:'#FFFBEB',borderColor:'#FDE68A',borderWidth:1,borderRadius:8,padding:9},
- incidentTitle:{fontSize:11,fontWeight:'700',color:'#92400E',marginBottom:3},
- incidentList:{fontSize:11,color:'#B45309',lineHeight:16},
- thresholdNote:{fontSize:11,lineHeight:17,color:'#64748B'},
- emergencyCard:{backgroundColor:'#EFF6FF',borderWidth:1,borderColor:'#BFDBFE',borderRadius:12,padding:12,gap:6,marginTop:4},
- emergencyTitle:{fontSize:13,fontWeight:'800',color:'#1E40AF'},
- emergencyDesc:{fontSize:11,lineHeight:16,color:'#3B82F6'},
- emergencyBtn:{backgroundColor:'#1565C0',borderRadius:8,paddingVertical:9,paddingHorizontal:12,alignItems:'center',marginTop:4},
- emergencyBtnText:{color:'#FFFFFF',fontSize:12,fontWeight:'800'}
+ statLabel:{fontSize:9,color:'#8290A3',fontWeight:'700'},
+ statValue:{fontSize:13,fontWeight:'900',color:theme.colors.text,marginTop:4},
+ incidentBox:{backgroundColor:theme.colors.warningSoft,borderColor:'#F0E0BE',borderWidth:1,borderRadius:11,padding:10},
+ incidentTitle:{fontSize:10,fontWeight:'800',color:'#8B5B18',marginBottom:4},
+ incidentList:{fontSize:10,color:'#9B6B2D',lineHeight:16},
+ thresholdNote:{fontSize:10,lineHeight:16,color:'#8491A3'},
+ emergencyCard:{backgroundColor:theme.colors.primarySoft,borderWidth:1,borderColor:'#D6E4F7',borderRadius:13,padding:12,gap:6,marginTop:3},
+ emergencyTitle:{fontSize:12,fontWeight:'900',color:theme.colors.primaryDark},
+ emergencyDesc:{fontSize:10,lineHeight:16,color:'#56749A'},
+ emergencyBtn:{minHeight:46,backgroundColor:theme.colors.primary,borderRadius:12,paddingVertical:10,paddingHorizontal:12,alignItems:'center',justifyContent:'center',marginTop:4},
+ emergencyBtnText:{color:'#FFFFFF',fontSize:11,fontWeight:'900'}
 });

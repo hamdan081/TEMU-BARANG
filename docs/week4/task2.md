@@ -18,8 +18,13 @@ Server REST lokal berjalan di `http://<LAN-IP>:4000` (konfigurasi melalui `.env`
 | GET    | `/barang`            | Bearer Token | **Ambil daftar barang (fokus utama Task 02)**   |
 | GET    | `/barang/:id`        | Bearer Token | Ambil detail satu barang                        |
 | POST   | `/barang`            | Bearer Token | Buat laporan barang baru                        |
-| POST   | `/barang/:id/verify` | Bearer Token | Verifikasi ciri barang                          |
-| PATCH  | `/barang/:id/status` | Bearer Token | Tandai barang dikembalikan                      |
+| POST   | `/barang/:id/claim`  | Bearer Token | Klaim laporan temuan dengan ciri rahasia dari laporan kehilangan milik pengguna |
+| PATCH  | `/barang/:id/status` | Bearer Token | Konfirmasi pengembalian pada laporan yang sudah dipasangkan |
+| PATCH  | `/barang/:id`        | Bearer Token | Edit laporan aktif milik sendiri                |
+| DELETE | `/barang/:id`        | Bearer Token | Hapus laporan aktif milik sendiri               |
+| POST   | `/barang/:id/report` | Bearer Token | Kirim laporan penyalahgunaan                    |
+
+Catatan: endpoint lama `POST /barang/:id/verify` dinonaktifkan (HTTP 410). Verifikasi klaim kini dilakukan melalui `/claim` dengan rahasia yang berasal dari laporan kehilangan milik pengklaim.
 
 ---
 
@@ -217,6 +222,6 @@ Dikerjakan oleh: Anggota 2 | Week 4 Task 02 - Connect to REST API
 
 ---
 
-## Addendum Week 8 — format status laporan terbaru
+## Addendum Week 9 — format status laporan terbaru
 
-Response `GET /barang` sekarang juga mengembalikan `jenisLaporan` (`Hilang` atau `Ditemukan`). Field `status` digunakan untuk status penanganan (`Belum Ditemukan`, `Menunggu Pemilik`, `Menunggu Pengambilan`, `Selesai Dikembalikan`). Contoh response sebelum addendum ini adalah format lama; lihat `docs/week8/task1.md` untuk kontrak API yang digunakan pada Week 8.
+Response `GET /barang` sekarang juga mengembalikan `jenisLaporan` (`Hilang` atau `Ditemukan`). Field `status` digunakan untuk status penanganan (`Belum Ditemukan`, `Menunggu Pemilik`, `Menunggu Pengambilan`, `Selesai Dikembalikan`). Contoh response sebelum addendum ini adalah format lama; lihat `docs/week9/task1.md` untuk kontrak API yang digunakan pada Week 9.

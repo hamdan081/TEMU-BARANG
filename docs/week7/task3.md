@@ -1,6 +1,6 @@
 # Week 7 Task 03 — Sensor Interaction
 
-Tujuan: mendeteksi gerakan perangkat berdasarkan accelerometer, menghasilkan feedback getaran, dan mengganti status di antarmuka TemuKampus.
+Tujuan: mendeteksi gerakan perangkat berdasarkan accelerometer, menghasilkan feedback getaran, dan mengganti status di antarmuka TemuBarang.
 
 ## Implementasi
 
@@ -13,7 +13,7 @@ Tujuan: mendeteksi gerakan perangkat berdasarkan accelerometer, menghasilkan fee
 ## Pengujian
 
 1. Jalankan `npm run test:week7` untuk pengujian fungsi threshold tanpa perangkat.
-2. Buka TemuKampus di ponsel fisik, login, lalu pilih tab **Sensor** dan tekan **Mulai Sensor**.
+2. Buka TemuBarang di ponsel fisik, login, lalu pilih tab **Sensor** dan tekan **Mulai Sensor**.
 3. Goyangkan ponsel. Status berubah menjadi **Goyang Terdeteksi!** dan ponsel bergetar selama 300 ms (apabila perangkat mendukung).
 4. Pastikan penghitung bertambah dan tidak ada getaran beruntun dalam waktu kurang dari 2 detik.
 5. Tekan **Hentikan Sensor**, lalu pastikan status kembali nonaktif dan tidak ada deteksi baru.

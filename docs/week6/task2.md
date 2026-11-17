@@ -1,9 +1,9 @@
 # Week 6 Task 02 — Loading, Error & Retry
 
-**Aplikasi:** TemuKampus (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
+**Aplikasi:** TemuBarang (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
 **Pelaksana (Orang 2):** frmaannn (`frmaannn` / `firmanvirdauz@gmail.com`)  
 **Tanggung Jawab:** Senior React Native Developer, UI/UX Developer, API Integration Specialist, dan Git Specialist  
-**Fokus Utama:** Mengembangkan mekanisme antarmuka pengguna (*UI Feedback States*) pada aplikasi TemuKampus selama dan setelah interaksi API berlangsung:
+**Fokus Utama:** Mengembangkan mekanisme antarmuka pengguna (*UI Feedback States*) pada aplikasi TemuBarang selama dan setelah interaksi API berlangsung:
 1. **Loading State:** Memberikan umpan balik visual animasi saat request API sedang berjalan.
 2. **Error State:** Menampilkan pesan kesalahan yang jelas ketika terjadi kegagalan (server error, HTTP client error, atau gangguan jaringan).
 3. **Empty State:** Menampilkan pesan khusus ketika data barang kosong, dibedakan secara tegas dari kondisi error.
@@ -48,7 +48,7 @@ function ErrorStateView({error,onRetry,retrying=false,isOffline=false}){
  } else if (isNetErr) {
   icon = '🔌';
   title = 'Server Tidak Terjangkau';
-  msg = 'Perangkat terhubung ke jaringan, tetapi server API TemuKampus tidak dapat dijangkau. Pastikan server lokal aktif.';
+  msg = 'Perangkat terhubung ke jaringan, tetapi server API TemuBarang tidak dapat dijangkau. Pastikan server lokal aktif.';
  } else if (error?.status >= 500) {
   icon = '🖥️';
   title = 'Gangguan Server';

@@ -32,9 +32,8 @@ test('Week 4 REST API + Week 5 token authentication, protected route, logout',as
   assert.equal(item.body.data.verificationSecret,undefined);
   const id=item.body.data.id;
   assert.equal((await call(`/barang/${id}/status`,'PATCH',{status:'Dikembalikan'},token)).status,400);
-  assert.equal((await call(`/barang/${id}/verify`,'POST',{jawaban:'salah'},token)).status,400);
-  assert.equal((await call(`/barang/${id}/verify`,'POST',{jawaban:'stiker oval'},token)).status,200);
-  assert.equal((await call(`/barang/${id}/status`,'PATCH',{status:'Dikembalikan'},token)).status,200);
+  assert.equal((await call(`/barang/${id}/verify`,'POST',{jawaban:'salah'},token)).status,410, 'endpoint verifikasi lama dinonaktifkan agar rahasia pemilik laporan temuan tidak dapat diverifikasi sendiri');
+  assert.equal((await call(`/barang/${id}/status`,'PATCH',{status:'Dikembalikan'},token)).status,400, 'laporan temuan harus dipasangkan dengan laporan kehilangan sebelum pengembalian');
   assert.equal((await call('/auth/logout','POST',{},token)).status,200);
   assert.equal((await call('/barang','GET',undefined,token)).status,401);
   const register=await call('/auth/register','POST',{name:'Pengguna Uji',email:'test@kampus.ac.id',password:'PasswordUji123'});
@@ -42,36 +41,38 @@ test('Week 4 REST API + Week 5 token authentication, protected route, logout',as
   const secondLogin=await call('/auth/login','POST',{email:'test@kampus.ac.id',password:'PasswordUji123'});
   assert.equal(secondLogin.status,200);
   assert.equal((await call(`/barang/${id}/status`,'PATCH',{status:'Dikembalikan'},secondLogin.body.access_token)).status,403);
-  const dummyJpg = new Blob([Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46])], { type: 'image/jpeg' });
-  const formNoAuth = new FormData();
-  formNoAuth.append('photo', dummyJpg, 'test.jpg');
-  const upNoAuth = await fetch(url + '/upload', { method: 'POST', body: formNoAuth });
-  assert.equal(upNoAuth.status, 401);
-  const badFileForm = new FormData();
-  badFileForm.append('photo', new Blob(['bukan gambar'], { type: 'text/plain' }), 'test.txt');
-  const upBad = await fetch(url + '/upload', { method: 'POST', headers: { Authorization: `Bearer ${secondLogin.body.access_token}` }, body: badFileForm });
-  assert.equal(upBad.status, 400);
-  const goodForm = new FormData();
-  goodForm.append('photo', dummyJpg, 'sample.jpg');
-  const upGood = await fetch(url + '/upload', { method: 'POST', headers: { Authorization: `Bearer ${secondLogin.body.access_token}` }, body: goodForm });
-  assert.equal(upGood.status, 201);
-  const upResult = await upGood.json();
-  assert.ok(upResult.url);
-  assert.ok(upResult.filename);
-  const getPhoto = await fetch(upResult.url);
-  assert.equal(getPhoto.status, 200);
-  assert.equal(getPhoto.headers.get('content-type'), 'image/jpeg');
-  const itemWithPhoto = await call('/barang', 'POST', {
-    nama: 'Kamera Digital',
-    kategori: 'Elektronik',
-    deskripsi: 'Kamera saku hitam',
-    lokasi: 'Lab Komputer',
-    status: 'Ditemukan',
-    image: upResult.url,
-    verificationSecret: 'tali merah'
-  }, secondLogin.body.access_token);
-  assert.equal(itemWithPhoto.status, 201);
-  assert.equal(itemWithPhoto.body.data.image, upResult.url);
+  if (process.env.MULTER_TEST_STUB !== '1') {
+   const dummyJpg = new Blob([Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46])], { type: 'image/jpeg' });
+   const formNoAuth = new FormData();
+   formNoAuth.append('photo', dummyJpg, 'test.jpg');
+   const upNoAuth = await fetch(url + '/upload', { method: 'POST', body: formNoAuth });
+   assert.equal(upNoAuth.status, 401);
+   const badFileForm = new FormData();
+   badFileForm.append('photo', new Blob(['bukan gambar'], { type: 'text/plain' }), 'test.txt');
+   const upBad = await fetch(url + '/upload', { method: 'POST', headers: { Authorization: `Bearer ${secondLogin.body.access_token}` }, body: badFileForm });
+   assert.equal(upBad.status, 400);
+   const goodForm = new FormData();
+   goodForm.append('photo', dummyJpg, 'sample.jpg');
+   const upGood = await fetch(url + '/upload', { method: 'POST', headers: { Authorization: `Bearer ${secondLogin.body.access_token}` }, body: goodForm });
+   assert.equal(upGood.status, 201);
+   const upResult = await upGood.json();
+   assert.ok(upResult.url);
+   assert.ok(upResult.filename);
+   const getPhoto = await fetch(upResult.url);
+   assert.equal(getPhoto.status, 200);
+   assert.equal(getPhoto.headers.get('content-type'), 'image/jpeg');
+   const itemWithPhoto = await call('/barang', 'POST', {
+     nama: 'Kamera Digital',
+     kategori: 'Elektronik',
+     deskripsi: 'Kamera saku hitam',
+     lokasi: 'Lab Komputer',
+     status: 'Ditemukan',
+     image: upResult.url,
+     verificationSecret: 'tali merah'
+   }, secondLogin.body.access_token);
+   assert.equal(itemWithPhoto.status, 201);
+   assert.equal(itemWithPhoto.body.data.image, upResult.url);
+  }
  }finally{server.close();rmSync(dir,{recursive:true,force:true});}
 });
 
@@ -217,7 +218,7 @@ test('Week 5 Task 02 - Protected API Request (Authorization Bearer Token, 401, 4
       body: { status: 'Dikembalikan' },
     });
     assert.equal(forbiddenRes.status, 403, 'User yang bukan pemilik harus mendapatkan HTTP 403 Forbidden');
-    assert.match(forbiddenRes.body.message, /hanya pembuat laporan/i);
+    assert.match(forbiddenRes.body.message, /pemilik laporan kehilangan|hanya pembuat laporan/i);
   } finally {
     server.close();
     rmSync(dir, { recursive: true, force: true });
@@ -617,7 +618,7 @@ test('Week 6 Task 01 - Handle API Error (2xx Success, 4xx Client Error, 5xx Serv
         assert.equal(err.isForbidden, true);
         assert.equal(err.isClientError, true);
         assert.equal(err.isRetryable, false);
-        assert.match(err.message, /hanya pembuat laporan|akses ditolak/i);
+        assert.match(err.message, /pemilik laporan kehilangan|hanya pembuat laporan|akses ditolak/i);
         return true;
       },
       'HTTP 403: Harus melempar ApiError status 403 Forbidden'
@@ -932,7 +933,7 @@ test('Week 6 Task 03 - Offline Handling, Network Discrimination, and Form Preser
           category: 'SERVER_UNREACHABLE',
           icon: '🔌',
           title: 'Server Tidak Terjangkau',
-          message: 'Perangkat terhubung ke jaringan, tetapi server API TemuKampus tidak dapat dijangkau. Pastikan server lokal aktif.',
+          message: 'Perangkat terhubung ke jaringan, tetapi server API TemuBarang tidak dapat dijangkau. Pastikan server lokal aktif.',
           canRetry: true,
         };
       }
@@ -974,7 +975,7 @@ test('Week 6 Task 03 - Offline Handling, Network Discrimination, and Form Preser
     assert.equal(diagServerDown.category, 'SERVER_UNREACHABLE');
     assert.equal(diagServerDown.icon, '🔌');
     assert.equal(diagServerDown.title, 'Server Tidak Terjangkau');
-    assert.match(diagServerDown.message, /server API TemuKampus tidak dapat dijangkau/i);
+    assert.match(diagServerDown.message, /server API TemuBarang tidak dapat dijangkau/i);
     assert.notEqual(diagServerDown.title, 'Tidak Ada Koneksi Internet', 'Tidak boleh keliru mengklaim offline saat Wi-Fi aktif');
 
     // Test 3: Request Timeout

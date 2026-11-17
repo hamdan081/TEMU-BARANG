@@ -47,6 +47,9 @@ export default function useShakeDetection(sample,enabled){
   previous.current=sample;
  },[sample,enabled]);
 
- useEffect(()=>()=>{if(timeout.current) clearTimeout(timeout.current);},[]);
+ useEffect(()=>()=>{
+  if(timeout.current) clearTimeout(timeout.current);
+  if (Platform.OS!=='web') Vibration.cancel();
+ },[]);
  return {shaking,count,threshold:SHAKE_THRESHOLD_G,lastAlertTime,incidents};
 }

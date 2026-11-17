@@ -1,9 +1,9 @@
 # Week 6 Task 01 — Handle API Error
 
-**Aplikasi:** TemuKampus (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
+**Aplikasi:** TemuBarang (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
 **Pelaksana (Orang 1):** Hamdan (`hamdan081` / `hamdanjulfa698@gmail.com`)  
 **Tanggung Jawab:** Senior React Native Developer, Node.js REST API Developer, Software Tester, dan Git Specialist  
-**Fokus Utama:** Mengembangkan mekanisme penanganan kesalahan terpadu (*unified error handling*) pada REST API Integration aplikasi TemuKampus untuk menangani kondisi:
+**Fokus Utama:** Mengembangkan mekanisme penanganan kesalahan terpadu (*unified error handling*) pada REST API Integration aplikasi TemuBarang untuk menangani kondisi:
 1. **HTTP 2xx (Success Response)**
 2. **HTTP 4xx (Client Error):** 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 409 Conflict, 422 Unprocessable, 429 Too Many Requests
 3. **HTTP 5xx (Server Error):** 500 Internal Server Error, 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout
@@ -15,7 +15,7 @@ Aplikasi dipastikan **tidak pernah mengalami crash (*unhandled exception*)** saa
 
 ## 1. Arsitektur Error Handling (`ApiError`)
 
-Pada [`services/api.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/services/api.js), kelas `ApiError` diperluas menjadi model error berstruktur tinggi yang menyediakan klasifikasi boolean dan tipe error:
+Pada [`services/api.js`](../../services/api.js), kelas `ApiError` diperluas menjadi model error berstruktur tinggi yang menyediakan klasifikasi boolean dan tipe error:
 
 ```javascript
 // Week 6 Task 01 — Handle API Error: Struktur ApiError terpadu untuk HTTP 2xx/4xx/5xx dan Network Error
@@ -58,7 +58,7 @@ export class ApiError extends Error {
 
 ## 2. Pemetaan & Sanitasi Pesan Error (`getErrorMessageForStatus`)
 
-Untuk mencegah kebocoran informasi teknis sensitif (*information leakage*), fungsi [`getErrorMessageForStatus()`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/services/api.js#L38-L77) menyaring pesan teknis internal sebelum dikirimkan ke UI:
+Untuk mencegah kebocoran informasi teknis sensitif (*information leakage*), fungsi [`getErrorMessageForStatus()`](../../services/api.js#L38-L77) menyaring pesan teknis internal sebelum dikirimkan ke UI:
 
 ```javascript
 export function getErrorMessageForStatus(status, serverMessage) {
@@ -106,7 +106,7 @@ export function getErrorMessageForStatus(status, serverMessage) {
 
 ## 3. Penanganan HTTP Response pada Fungsi `request()`
 
-Implementasi alur request di [`services/api.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/services/api.js#L140-L221):
+Implementasi alur request di [`services/api.js`](../../services/api.js#L140-L221):
 
 ```javascript
 export async function request(path, { method = 'GET', body, authenticated = false, _retry = false } = {}) {
@@ -201,14 +201,14 @@ export async function request(path, { method = 'GET', body, authenticated = fals
 ## 4. Hubungan dengan Refresh Token & Perlindungan Sesi
 
 Sesuai aturan keamanan penting: **"Jangan menghapus sesi hanya karena gangguan jaringan."**
-Pada [`refreshAccessToken()`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/services/api.js#L82-L138):
+Pada [`refreshAccessToken()`](../../services/api.js#L82-L138):
 1. Jika terjadi kegagalan jaringan saat memanggil `/auth/refresh` (misalnya perangkat mendadak offline atau timeout), error ditangkap sebagai `NETWORK_ERROR` dengan status 0.
 2. `clearSession()` **DILARANG DIPANGGIL** saat network error. Sesi pada Expo SecureStore tetap utuh.
 3. `clearSession()` **HANYA DIPANGGIL** jika server secara definitif merespons dengan **HTTP 401** (tanda bahwa refresh token sudah kedaluwarsa, tidak valid, atau telah dicabut).
 
 ---
 
-## 5. Integrasi End-to-End dengan Seluruh Fitur TemuKampus
+## 5. Integrasi End-to-End dengan Seluruh Fitur TemuBarang
 
 Penanganan error terintegrasi penuh ke semua fitur aplikasi tanpa duplikasi:
 - **Login API (`loginWithAPI`):** Menampilkan error 400 (input kosong), 401 (email/password salah), atau Network Error tanpa mengekspos hash/kredensial.
@@ -216,7 +216,7 @@ Penanganan error terintegrasi penuh ke semua fitur aplikasi tanpa duplikasi:
 - **Daftar Barang (`fetchBarang`):** Auto-recovery via refresh token saat 401, menampilkan banner error jika server 500 atau offline tanpa membuat layar crash.
 - **Detail Barang (`GET /barang/:id`):** Menangani 404 jika barang telah dihapus/tidak ditemukan.
 - **Lapor Barang (`createBarang`):** Menolak duplikasi request non-idempotent dan menyajikan pesan validasi 400 secara ramah.
-- **Verifikasi Pengambilan (`verifyBarang`):** Menangani 400 (ciri khusus salah) dan 429 (batas percobaan verifikasi tercapai).
+- **Klaim Barang Temuan (`claimFoundBarang`):** Menangani 400 (ciri rahasia tidak cocok), 403 (bukan pemilik laporan kehilangan), 409 (laporan sudah dipasangkan), dan 429 (batas percobaan klaim tercapai).
 - **Unggah Foto (`uploadPhoto`):** Menangani timeout, payload 413 (file > 25MB), format file 400, dan koneksi terputus.
 
 ---
@@ -265,17 +265,17 @@ node --test server/server.test.js
 
 ## 7. Ringkasan File yang Diperbaiki
 
-1. [`services/api.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/services/api.js):
+1. [`services/api.js`](../../services/api.js):
    - Perluasan kelas `ApiError` dengan klasifikasi status dan flag `isRetryable`.
    - Penambahan fungsi `getErrorMessageForStatus()` dengan sanitasi informasi sensitif.
    - Peningkatan fungsi `request()` dengan safe parsing, timeout handler, dan pengelompokan network error.
    - Proteksi sesi pada `refreshAccessToken()` agar tidak terhapus saat gangguan jaringan.
    - Peningkatan penanganan error pada `uploadPhoto()`.
-2. [`server/server.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/server/server.js):
+2. [`server/server.js`](../../server/server.js):
    - Penambahan endpoint simulasi `GET /test/error-500` untuk memvalidasi penanganan status HTTP 500 pada automated test.
-3. [`server/server.test.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/server/server.test.js):
+3. [`server/server.test.js`](../../server/server.test.js):
    - Penambahan test suite menyeluruh untuk seluruh skenario Week 6 Task 01.
-4. [`docs/week6/task1.md`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/docs/week6/task1.md):
+4. [`docs/week6/task1.md`](task1.md):
    - Dokumentasi lengkap Week 6 Task 01.
 
 ---
@@ -283,5 +283,5 @@ node --test server/server.test.js
 ## 8. Kesimpulan & Handover ke Orang 2
 
 - **Tugas Selesai:** Seluruh persyaratan Week 6 Task 01 (Handle API Error) berhasil diimplementasikan dan diverifikasi 100% lulus uji.
-- **Kondisi App:** Aplikasi TemuKampus tangguh menghadapi respon sukses, kesalahan klien, kesalahan server, maupun kondisi jaringan terputus tanpa pernah mengalami crash.
+- **Kondisi App:** Aplikasi TemuBarang tangguh menghadapi respon sukses, kesalahan klien, kesalahan server, maupun kondisi jaringan terputus tanpa pernah mengalami crash.
 - **Kesiapan Handover:** Struktur `ApiError` telah menyediakan properti `isRetryable`, `isNetworkError`, dan `isServerError` yang siap dimanfaatkan oleh **Orang 2 untuk pengerjaan Week 6 Task 02 (Loading State & Retry Mechanism)**.

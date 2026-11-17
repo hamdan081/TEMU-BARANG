@@ -185,7 +185,15 @@ export async function refreshAccessToken() {
   return refreshPromise;
 }
 
-export async function request(path,{method='GET',body,authenticated=false,_retry=false}={}){
+function createRequestAbortError() {
+  const error = new Error('Permintaan dibatalkan karena tampilan tidak lagi membutuhkan data.');
+  error.name = 'AbortError';
+  error.isRequestAborted = true;
+  return error;
+}
+
+export async function request(path,{method='GET',body,authenticated=false,_retry=false,signal:externalSignal}={}){
+  if (externalSignal?.aborted) throw createRequestAbortError();
   const baseUrl = getApiBaseUrl();
   if(!baseUrl)throw new ApiError('Alamat API belum diatur. Pastikan server backend aktif.', 0, {
     type: 'CLIENT_ERROR',
@@ -199,8 +207,12 @@ export async function request(path,{method='GET',body,authenticated=false,_retry
     headers.Authorization=`Bearer ${token}`;
   }
   const controller=new AbortController();
+  const abortFromCaller=()=>controller.abort();
+  if (externalSignal?.aborted) throw createRequestAbortError();
+  externalSignal?.addEventListener?.('abort', abortFromCaller, { once: true });
   const timer=setTimeout(()=>controller.abort(),timeout);
   try{
+    if (externalSignal?.aborted) throw createRequestAbortError();
     const response=await fetch(`${baseUrl}${path}`,{method,headers,body:body!==undefined?JSON.stringify(body):undefined,signal:controller.signal});
     
     // Parse response secara aman (mendukung JSON, teks/HTML error, atau body kosong)
@@ -219,13 +231,16 @@ export async function request(path,{method='GET',body,authenticated=false,_retry
     if(response.status===401 && authenticated && !_retry && path!=='/auth/login' && path!=='/auth/refresh' && path!=='/auth/logout'){
       // Auto-retry HANYA pada operasi idempotent (GET)
       if(method==='GET'){
+        if (externalSignal?.aborted) throw createRequestAbortError();
         clearTimeout(timer);
         try{
           const newToken = await refreshAccessToken();
           if(newToken){
-            return request(path,{method,body,authenticated:true,_retry:true});
+            if (externalSignal?.aborted) throw createRequestAbortError();
+            return request(path,{method,body,authenticated:true,_retry:true,signal:externalSignal});
           }
         }catch(refreshErr){
+          if (externalSignal?.aborted || refreshErr?.isRequestAborted || refreshErr?.name==='AbortError') throw createRequestAbortError();
           if(refreshErr instanceof ApiError) throw refreshErr;
           throw new ApiError('Sesi kedaluwarsa. Silakan login kembali.',401);
         }
@@ -243,6 +258,7 @@ export async function request(path,{method='GET',body,authenticated=false,_retry
     // HTTP 2xx: Success
     return payload;
   }catch(e){
+    if (externalSignal?.aborted || e?.isRequestAborted) throw createRequestAbortError();
     if(e instanceof ApiError)throw e;
     if(e.name==='AbortError'){
       throw new ApiError('Koneksi waktu habis (timeout). Server membutuhkan waktu terlalu lama untuk merespons.', 0, {
@@ -259,7 +275,10 @@ export async function request(path,{method='GET',body,authenticated=false,_retry
       isRetryable: true,
       details: e.message || 'Network request failed',
     });
-  }finally{clearTimeout(timer);}
+  }finally{
+    clearTimeout(timer);
+    externalSignal?.removeEventListener?.('abort', abortFromCaller);
+  }
 }
 export const registerUser=(name,email,password)=>request('/auth/register',{method:'POST',body:{name,email,password}});
 // Week 5 Task 01: POST /auth/login - kirim email & password via JSON, terima access_token JWT asli dari backend.
@@ -281,92 +300,35 @@ export const logoutAPI = async () => {
   });
 };
 
-// Week 8: GET /barang mengambil daftar laporan barang hilang/temuan secara asynchronous.
+// Week 9: GET /barang mengambil daftar laporan barang hilang/temuan secara asynchronous.
+// Signal memungkinkan request dibatalkan ketika komponen pemanggil tidak lagi membutuhkan hasilnya.
 // Week 4 & Week 5 Task 02: respons dipetakan ke DTO Barang dan dilindungi Bearer token.
-export const fetchBarang = async () => {
-  const response = await authenticatedFetch('/barang');
+export const fetchBarang = async ({ signal } = {}) => {
+  const response = await authenticatedFetch('/barang', { signal });
   if (!Array.isArray(response.data)) throw new ApiError('Format data API tidak sesuai.');
   return response.data.map(mapBarang);
 };
-
-// Week 9 Task 01 (anggota-1-get): GET daftar barang hilang — filter jenisLaporan === 'Hilang'.
-// Menggunakan fetchBarang() yang sudah ada agar tidak ada duplikasi request ke server.
-export const fetchBarangHilang = async () => {
-  const semua = await fetchBarang();
-  return semua.filter(item => item.jenisLaporan === 'Hilang');
+// Week 9: POST /barang menyimpan laporan barang hilang atau barang temuan.
+export const createBarang=async form=>{
+ const response=await request('/barang',{method:'POST',authenticated:true,body:form});
+ return mapBarang(response.data);
 };
-
-// Week 9 Task 01 (anggota-1-get): GET daftar barang temuan — filter jenisLaporan === 'Ditemukan'.
-// Menggunakan fetchBarang() yang sudah ada agar tidak ada duplikasi request ke server.
-export const fetchBarangTemuan = async () => {
-  const semua = await fetchBarang();
-  return semua.filter(item => item.jenisLaporan === 'Ditemukan');
+// Klaim barang temuan diverifikasi memakai ciri rahasia dari laporan kehilangan milik pengguna.
+export const claimFoundBarang=async(foundId,lostReportId,jawaban)=>{
+ const response=await request(`/barang/${foundId}/claim`,{method:'POST',authenticated:true,body:{lostReportId,jawaban}});
+ return {foundItem:mapBarang(response.foundItem),lostItem:mapBarang(response.lostItem),message:response.message};
 };
-// Week 9 Task 02 (anggota-2-post): POST /barang menyimpan laporan barang hilang atau barang temuan.
-// Memastikan hanya field yang dikenali backend yang dikirimkan.
-export const createBarang = async form => {
-  const payload = {
-    nama: String(form.nama || '').trim(),
-    kategori: form.kategori,
-    lokasi: String(form.lokasi || '').trim(),
-    deskripsi: String(form.deskripsi || '').trim(),
-    jenisLaporan: form.jenisLaporan,
-    verificationSecret: String(form.verificationSecret || '').trim(),
-    ...(form.image ? { image: form.image } : {})
-  };
-  const response = await request('/barang', { method: 'POST', authenticated: true, body: payload });
-  return mapBarang(response.data);
+// Week 9: PATCH memperbarui laporan milik pengguna sebelum laporan dipasangkan/selesai.
+export const updateBarang=async(id,form)=>{
+ const response=await request(`/barang/${id}`,{method:'PATCH',authenticated:true,body:form});
+ return mapBarang(response.data);
 };
-
-// Week 9 Task 02 (anggota-2-post): Helper POST khusus laporan barang hilang
-export const createBarangHilang = async form => {
-  return createBarang({ ...form, jenisLaporan: 'Hilang' });
-};
-
-// Week 9 Task 02 (anggota-2-post): Helper POST khusus laporan barang temuan
-export const createBarangTemuan = async form => {
-  return createBarang({ ...form, jenisLaporan: 'Ditemukan' });
-};
-export const verifyBarang=async(id,jawaban)=>{
- const response=await request(`/barang/${id}/verify`,{method:'POST',authenticated:true,body:{jawaban}});
- return {item:mapBarang(response.data),message:response.message};
-};
-// Week 8 & Week 9 Task 03 (anggota-3-patch):
-// 1. patchBarangStatus(id, status): Memperbarui status penanganan laporan barang via PATCH /barang/:id/status
-export const patchBarangStatus = async (id, status) => {
-  const response = await request(`/barang/${id}/status`, {
-    method: 'PATCH',
-    authenticated: true,
-    body: { status },
-  });
-  return mapBarang(response.data);
-};
-
-// 2. patchBarang(id, data): Memperbarui informasi laporan barang (nama, lokasi, deskripsi, dll) via PATCH /barang/:id
-export const patchBarang = async (id, data) => {
-  const payload = {};
-  if (data.nama !== undefined) payload.nama = String(data.nama).trim();
-  if (data.lokasi !== undefined) payload.lokasi = String(data.lokasi).trim();
-  if (data.deskripsi !== undefined) payload.deskripsi = String(data.deskripsi).trim();
-  if (data.kategori !== undefined) payload.kategori = data.kategori;
-  if (data.status !== undefined) payload.status = data.status;
-
-  const response = await request(`/barang/${id}`, {
-    method: 'PATCH',
-    authenticated: true,
-    body: payload,
-  });
-  return mapBarang(response.data);
-};
-
-// 3. markReturned(id): Konfirmasi pengembalian barang selesai
-export const markReturned = async id => {
-  return patchBarangStatus(id, 'Selesai Dikembalikan');
-};
-
-// 4. markUnresolved(id): Menandai laporan barang belum terselesaikan
-export const markUnresolved = async id => {
-  return patchBarangStatus(id, 'Belum Terselesaikan');
+export const deleteBarang=async id=>request(`/barang/${id}`,{method:'DELETE',authenticated:true});
+export const reportBarang=async(id,reason,description='')=>request(`/barang/${id}/report`,{method:'POST',authenticated:true,body:{reason,description}});
+// Week 9: PATCH menyelesaikan pengembalian pada laporan kehilangan dan pasangan barang temuannya.
+export const markReturned=async id=>{
+ const response=await request(`/barang/${id}/status`,{method:'PATCH',authenticated:true,body:{status:'Selesai Dikembalikan'}});
+ return mapBarang(response.data);
 };
 
 export function resolveImageUrl(image){

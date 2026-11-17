@@ -1,6 +1,6 @@
 # Week 5 Task 01 — Implement Token Authentication
 
-**Aplikasi:** TemuKampus (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
+**Aplikasi:** TemuBarang (Aplikasi Pelaporan Barang Hilang & Ditemukan di Kampus)  
 **Pelaksana (Orang 1):** Hamdan (`hamdan081` / `hamdanjulfa698@gmail.com`)  
 **Tanggung Jawab:** React Native Developer, Authentication Developer, dan Git Specialist  
 **Fokus:** Mengimplementasikan proses Login berbasis REST API, validasi kredensial pada server, penerbitan token JWT asli, penyimpanan access token menggunakan Expo SecureStore (terpisah dari AsyncStorage), pembaruan state autentikasi aplikasi, dan proteksi dari kebocoran kredensial.
@@ -87,7 +87,7 @@ Sesuai aturan keamanan data mobile:
 - **AsyncStorage:** **DILARANG** digunakan untuk token. Hanya digunakan untuk menyimpan data profil non-sensitif (`temukampus_profile`) dan preferensi tampilan UI (`temukampus_preferences`).
 - **Kata Sandi:** Tidak pernah disimpan pada penyimpanan perangkat apa pun.
 
-Implementasi pada [`storage/session.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/storage/session.js):
+Implementasi pada [`storage/session.js`](../../storage/session.js):
 ```javascript
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
@@ -109,7 +109,7 @@ export const getToken = () => SecureStore.getItemAsync(TOKEN_KEY);
 
 ## 5. Perubahan Authentication State & Navigasi di `App.js`
 
-Implementasi pada fungsi `doLogin` di [`App.js`](file:///c:/A%20PENTING/TUGAS%20SEMESTER%205/PEMROGRAMAN%20MOBILE/TemuKampus_Reaudit_Final/App.js):
+Implementasi pada fungsi `doLogin` di [`App.js`](../../App.js):
 
 ```javascript
 // Week 5 Task 01: Token Authentication (POST login via API, simpan access token di SecureStore, update authUser)
@@ -137,7 +137,7 @@ const doLogin = async () => {
     // 4. Ubah authentication state (pengguna terautentikasi)
     setAuthUser(result.user);
     
-    // 5. Arahkan pengguna ke halaman Home TemuKampus
+    // 5. Arahkan pengguna ke halaman Home TemuBarang
     setScreen('home');
   } catch (e) {
     setError(e.message || 'Login gagal.');
@@ -149,7 +149,7 @@ const doLogin = async () => {
 
 Saat `authUser` terisi (state `authenticated = Boolean(authUser)` bernilai `true`):
 - Komponen Login disembunyikan.
-- Komponen utama TemuKampus (Header, Home / Daftar Barang, Navigasi Bawah) ditampilkan.
+- Komponen utama TemuBarang (Header, Home / Daftar Barang, Navigasi Bawah) ditampilkan.
 - Memanggil `refreshItems()` untuk memuat data barang secara real-time dari API.
 
 ---
@@ -184,3 +184,8 @@ Pengujian backend otomatis dijalankan dengan `node --test server/server.test.js`
 
 - **Tugas yang diselesaikan:** Week 5 Task 01 — Implement Token Authentication.
 - **Tugas berikutnya:** Week 5 Task 02 — Attach Token to API Request (akan dilanjutkan oleh Orang 2: menyematkan token dari SecureStore ke header `Authorization: Bearer <token>` pada seluruh request API protected).
+
+
+## Catatan transport keamanan
+
+Server lokal praktikum berjalan melalui HTTP pada jaringan lokal agar Expo Go dapat terhubung ke laptop. Ini hanya konfigurasi development. Untuk server yang dapat diakses melalui internet, gunakan HTTPS dengan sertifikat TLS valid; jangan mengirim credential atau token melalui HTTP publik.

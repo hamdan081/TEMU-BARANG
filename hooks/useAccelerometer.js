@@ -1,16 +1,17 @@
 /** Week 7 Task 01: pembacaan accelerometer melalui Expo Sensor API. */
-import {useCallback,useEffect,useState} from 'react';
+import {useCallback,useEffect,useRef,useState} from 'react';
 import {Accelerometer} from 'expo-sensors';
 
 // Expo mengembalikan percepatan dalam satuan g (1 g ~= 9,80665 m/s²).
 export const GRAVITY_MS2 = 9.80665;
-export const SENSOR_INTERVAL_MS = 150;
+export const SENSOR_INTERVAL_MS = 200;
 
 export default function useAccelerometer(){
  const [active,setActive] = useState(false);
  const [permission,setPermission] = useState('belum diminta');
  const [error,setError] = useState('');
  const [sample,setSample] = useState(null);
+ const lastLogAt = useRef(0);
 
  // Dipanggil dari tombol agar permintaan izin bisa dilakukan atas tindakan pengguna.
  const start=useCallback(async()=>{
@@ -52,8 +53,12 @@ export default function useAccelerometer(){
     if (![x,y,z].every(Number.isFinite)) return;
     const reading={x,y,z,timestamp:Date.now()};
     setSample(reading);
-    // Task 01: data X/Y/Z harus juga muncul pada console saat aplikasi dijalankan.
-    console.log(`[Week 7 / Accelerometer] X=${(x*GRAVITY_MS2).toFixed(2)} Y=${(y*GRAVITY_MS2).toFixed(2)} Z=${(z*GRAVITY_MS2).toFixed(2)} m/s²`);
+    // Log dibatasi maksimal sekali per detik agar console tidak membebani perangkat.
+    const now = Date.now();
+    if (now - lastLogAt.current >= 1000) {
+     lastLogAt.current = now;
+     console.log(`[Week 7 / Accelerometer] X=${(x*GRAVITY_MS2).toFixed(2)} Y=${(y*GRAVITY_MS2).toFixed(2)} Z=${(z*GRAVITY_MS2).toFixed(2)} m/s²`);
+    }
    });
   } catch (e) {
    setActive(false);

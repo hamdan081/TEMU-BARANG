@@ -1,16 +1,24 @@
-PROMPT GITHUB — WEEK 7 TASK 02 (DISPLAY SENSOR DATA)
+PROMPT GITHUB — WEEK 7 TASK 02: DISPLAY SENSOR DATA
 
-Bertindak sebagai developer React Native + Expo dan Git specialist. Task 01 dari Week 7 sudah berada di branch aktif repository TemuKampus. Terapkan HANYA Task 02 dari `week7-task2.patch` agar nilai accelerometer X/Y/Z dari hook Task 01 muncul di UI real-time.
+Anda bertindak sebagai React Native + Expo Developer yang mengerjakan Task 02 Week 7 pada aplikasi TemuBarang.
 
-Target Task 02: buat komponen `components/sensors/SensorDashboard.js` yang menampilkan tiga kartu X, Y, Z dalam m/s² dan riwayat 24 sampel terakhir. Komponen memakai data sensor nyata yang diberikan `SensorScreen`, bukan data tiruan atau API server. Saat sensor berhenti UI menampilkan status kosong dan riwayat dibersihkan. Tambahkan dokumentasi `docs/week7/task2.md`, jangan mengubah sistem login, API, atau data barang.
+Repository: https://github.com/hamdan081/TEMU-BARANG
+Branch yang disarankan: week7/anggota-2-sensor-dashboard
 
-Prosedur Git yang diminta:
-1. Pastikan commit Task 01 ada dan working tree bersih (`git status --short`).
-2. Salin patch ke root repo; jalankan `git apply --check week7-task2.patch` lalu `git apply week7-task2.patch`.
-3. Periksa rendering dan pembaruan nilai ketika ponsel bergerak; jalankan `git diff --check`.
-4. Stage HANYA file Task 02: `git add components/sensors/SensorDashboard.js components/sensors/SensorScreen.js docs/week7/task2.md`.
-5. Jalankan `git commit -m "feat(week7-task2): display accelerometer data in real time"`.
-6. Konfirmasi remote `origin` lalu jalankan `git push -u origin HEAD` tanpa `--force`.
-7. Laporkan SHA commit, branch, dan hasil push yang benar-benar terjadi.
+Ruang lingkup:
+1. Gunakan data Accelerometer X, Y, Z dari hook yang sudah ada; jangan membuat listener sensor kedua.
+2. Tampilkan nilai sensor real-time dalam m/s².
+3. Tampilkan riwayat sampel sensor secara terbatas agar penggunaan memori tetap terkendali.
+4. Tampilkan state kosong ketika sensor nonaktif dan bersihkan riwayat sesuai lifecycle.
+5. Pastikan tampilan responsif dan memiliki label aksesibilitas.
 
-Jangan melanjutkan implementasi Task 03 sampai Task 02 sudah di-commit. Jika repo sudah memakai semua perubahan dari ZIP final, gunakan alur patch dari baseline asli untuk mendapatkan commit terpisah.
+File utama: components/sensors/SensorDashboard.js, components/sensors/SensorScreen.js, hooks/useAccelerometer.js.
+
+Git workflow:
+- Pastikan PR Task 01 sudah di-merge.
+- Tarik main terbaru, buat branch, lalu kerjakan hanya dashboard sensor.
+- Jalankan pengujian dan periksa diff.
+- Commit: feat(week7): display accelerometer data
+- Push branch dan buat Pull Request ke main; jangan force-push.
+
+Laporkan file yang diubah, hasil test yang benar-benar dijalankan, commit SHA, branch, dan URL Pull Request. Jangan mengklaim pengujian smartphone jika belum dilakukan.
