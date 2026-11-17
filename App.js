@@ -485,12 +485,12 @@ export default function App(){
   setForm({...blankForm,nama:target.nama,kategori:target.kategori,deskripsi:target.deskripsi,lokasi:target.lokasi,jenisLaporan:target.jenisLaporan,image:target.image||'',latitude:target.latitude??null,longitude:target.longitude??null,accuracy:target.accuracy??null,alamat:target.alamat||''});
   setSelectedImage(null);setSelectedImageBase64(null);setError('');setMessage('');navigate('report');
  };
- // Week 10 Task 01 & 03: ambil GPS hanya saat pengguna meminta, lalu lakukan reverse geocoding.
+ // Week 10 Task 01: Ambil lokasi GPS perangkat (latitude, longitude, accuracy) menggunakan expo-location.
  const captureReportLocation=async()=>{
   setLocationBusy(true);setError('');
   try{
    const location=await getCurrentLocationWithAddress();
-   const readableAddress=location.address||`Koordinat ${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`;
+   const readableAddress=location.address||`Koordinat ${Number(location.latitude).toFixed(6)}, ${Number(location.longitude).toFixed(6)}`;
    setForm(previous=>({
     ...previous,
     lokasi:readableAddress,
@@ -499,13 +499,14 @@ export default function App(){
     longitude:location.longitude,
     accuracy:location.accuracy
    }));
-   setMessage(Number.isFinite(location.accuracy)&&location.accuracy>100
-    ? `Lokasi diambil, tetapi akurasi ±${Math.round(location.accuracy)} meter masih rendah. Pilih titik manual pada peta atau ambil ulang di area terbuka.`
-    : 'Lokasi GPS berhasil ditambahkan ke laporan.');
+   const accuracyMeters = Number.isFinite(location.accuracy) ? Math.round(location.accuracy) : null;
+   setMessage(accuracyMeters!==null && accuracyMeters>100
+    ? `Lokasi GPS diambil (Akurasi: ±${accuracyMeters}m). Akurasi cukup lebar; Anda juga dapat memilih titik pada peta untuk menyempurnakan.`
+    : `Lokasi GPS berhasil diambil (Lat: ${Number(location.latitude).toFixed(5)}, Lng: ${Number(location.longitude).toFixed(5)}${accuracyMeters!==null?`, Akurasi: ±${accuracyMeters}m`:''}).`);
   }catch(locationError){
    const message=locationError?.message||'Lokasi perangkat tidak dapat diambil.';
    setError(message);
-   Alert.alert('Gagal Mengambil Lokasi',message);
+   Alert.alert('Gagal Mengambil Lokasi GPS',message);
   }finally{setLocationBusy(false);}
  };
  // Week 9: POST /barang mengirim laporan barang hilang/temuan ke backend TemuBarang.
@@ -803,15 +804,51 @@ export default function App(){
       <Text style={styles.label}>Kategori</Text><View style={styles.wrap}>{categories.map(cat=><Choice key={cat} label={cat} selected={form.kategori===cat} onPress={()=>changeReport('kategori',cat)}/>)}</View>
       <Field label="Lokasi terakhir / area umum" value={form.lokasi} onChangeText={v=>changeReport('lokasi',v)} placeholder="Contoh: Perpustakaan, Gedung A, area parkir"/>
       <View style={styles.photoPickerRow}>
-       <View style={{flex:1}}><UIButton title={locationBusy?'Mengambil GPS...':'📍 Gunakan GPS Saat Ini'} secondary onPress={captureReportLocation} disabled={locationBusy||busy}/></View>
-       <View style={{flex:1}}><UIButton title="🗺️ Pilih Titik di Peta" secondary onPress={()=>setShowLocationPicker(true)} disabled={busy}/></View>
+       <View style={{flex:1}}>
+        <UIButton
+          title={locationBusy ? 'Mengambil Lokasi...' : '📍 Ambil Lokasi GPS'}
+          secondary
+          loading={locationBusy}
+          onPress={captureReportLocation}
+          disabled={locationBusy||busy}
+          accessibilityLabel="Ambil Lokasi GPS"
+          accessibilityHint="Mengambil koordinat latitude, longitude, dan akurasi perangkat menggunakan GPS"
+        />
+       </View>
+       <View style={{flex:1}}>
+        <UIButton
+          title="🗺️ Pilih Titik di Peta"
+          secondary
+          onPress={()=>setShowLocationPicker(true)}
+          disabled={busy||locationBusy}
+          accessibilityLabel="Pilih Titik di Peta"
+          accessibilityHint="Pilih lokasi kejadian secara manual pada peta interaktif"
+        />
+       </View>
       </View>
       <Text style={styles.hint}>Gunakan GPS hanya jika kamu berada di lokasi kejadian. Untuk kejadian sebelumnya, pilih titik secara manual pada peta. Saat mengubah teks lokasi, koordinat GPS lama otomatis dihapus agar tidak salah titik. Gunakan area umum kampus dan hindari alamat rumah.</Text>
-      {form.latitude!==null&&form.longitude!==null&&<View style={styles.locationCaptureBox}>
-       <Text style={styles.locationCaptureTitle}>Koordinat GPS tersimpan</Text>
-       <Text style={styles.locationCaptureText}>Lat: {Number(form.latitude).toFixed(6)} • Lng: {Number(form.longitude).toFixed(6)}</Text>
-       <Text style={styles.locationCaptureText}>Akurasi: {Number.isFinite(form.accuracy)?`±${Math.round(form.accuracy)} meter`:'Tidak tersedia'}</Text>
-      </View>}
+      {form.latitude!==null&&form.longitude!==null&&(
+       <View style={styles.locationCaptureBox}>
+        <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:5}}>
+         <Text style={styles.locationCaptureTitle}>📍 Koordinat GPS Tersimpan</Text>
+         <Pressable
+          onPress={()=>setForm(prev=>({...prev,latitude:null,longitude:null,accuracy:null,alamat:''}))}
+          accessibilityRole="button"
+          accessibilityLabel="Hapus koordinat GPS"
+          hitSlop={8}
+         >
+          <Text style={{color:theme.colors.danger,fontSize:11,fontWeight:'800'}}>✕ Hapus Koordinat</Text>
+         </Pressable>
+        </View>
+        <Text style={styles.locationCaptureText}>Latitude: {Number(form.latitude).toFixed(6)}</Text>
+        <Text style={styles.locationCaptureText}>Longitude: {Number(form.longitude).toFixed(6)}</Text>
+        <Text style={styles.locationCaptureText}>
+         Akurasi: {Number.isFinite(form.accuracy)?`±${Math.round(form.accuracy)} meter`:'Tidak tersedia'}
+         {Number.isFinite(form.accuracy)?(form.accuracy<=30?' (Sangat Baik)':form.accuracy<=100?' (Cukup)':' (Rendah)'):''}
+        </Text>
+        {form.alamat ? <Text style={[styles.locationCaptureText,{marginTop:3,fontWeight:'700',color:theme.colors.primaryDark}]}>Alamat: {form.alamat}</Text> : null}
+       </View>
+      )}
       <Field label="Ciri-ciri Barang" value={form.deskripsi} onChangeText={v=>changeReport('deskripsi',v)} multiline placeholder="Warna, ukuran, ciri khusus..."/>
       <View style={styles.field}>
        <Text style={styles.label}>Foto Barang (opsional)</Text>
