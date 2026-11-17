@@ -25,7 +25,7 @@ import BottomNav from './components/BottomNav';
 import ItemCard from './components/ItemCard';
 import SensorScreen from './components/sensors/SensorScreen';
 import {categories,handlingStatuses,reportTypes} from './models/Barang';
-import {API_BASE_URL,ApiError,registerUser,loginWithAPI,getProfile,logoutAPI,fetchBarang,fetchBarangHilang,fetchBarangTemuan,createBarang,createBarangHilang,createBarangTemuan,verifyBarang,markReturned,uploadPhoto,resolveImageUrl,refreshAccessToken,setApiBaseUrl,getApiBaseUrl,getAutoDetectedHost} from './services/api';
+import {API_BASE_URL,ApiError,registerUser,loginWithAPI,getProfile,logoutAPI,fetchBarang,fetchBarangHilang,fetchBarangTemuan,createBarang,createBarangHilang,createBarangTemuan,verifyBarang,markReturned,patchBarangStatus,patchBarang,markUnresolved,uploadPhoto,resolveImageUrl,refreshAccessToken,setApiBaseUrl,getApiBaseUrl,getAutoDetectedHost} from './services/api';
 import {clearSession,getToken,saveSession,savePreference,getPreference,saveApiUrl,getSavedApiUrl} from './storage/session';
 
 const primary='#1565C0';
@@ -68,19 +68,22 @@ function Choice({label,selected,onPress}){
 function getFollowUpInfo(item,currentUserId){
  const isOwner=Number(item.ownerId)===Number(currentUserId);
  if(isOwner&&item.status==='Menunggu Pengambilan')return {title:'Konfirmasi barang telah diterima',description:'Ciri barang sudah diverifikasi. Setelah barang benar-benar diterima, konfirmasikan pengembaliannya.',button:'Konfirmasi Pengembalian',kind:'confirm'};
- if(isOwner&&item.status==='Belum Ditemukan')return {title:'Pantau laporan kehilangan',description:'Laporan masih aktif. Periksa informasi terbaru dan pantau jika ada laporan temuan yang cocok.',button:'Lihat Laporan',kind:'detail'};
+ if(isOwner&&(item.status==='Belum Ditemukan'||item.status==='Menunggu Verifikasi'))return {title:'Pantau laporan kehilangan',description:'Laporan masih aktif. Periksa informasi terbaru dan pantau jika ada laporan temuan yang cocok.',button:'Lihat Laporan',kind:'detail'};
  if(isOwner&&item.status==='Menunggu Pemilik')return {title:'Menunggu pemilik barang',description:'Barang sudah dilaporkan ditemukan. Tunggu pemilik melakukan verifikasi ciri khusus.',button:'Lihat Laporan',kind:'detail'};
  if(!isOwner&&item.status==='Menunggu Pemilik')return {title:'Periksa kecocokan barang temuan',description:'Jika barang ini milikmu, buka detail dan masukkan ciri khusus untuk memulai verifikasi.',button:'Periksa & Verifikasi',kind:'verify'};
- if(!isOwner&&item.status==='Belum Ditemukan')return {title:'Cocokkan laporan kehilangan',description:'Periksa nama, foto, ciri-ciri, dan lokasi. Jika barang cocok, lanjutkan proses verifikasi.',button:'Periksa Laporan',kind:'verify'};
+ if(!isOwner&&(item.status==='Belum Ditemukan'||item.status==='Menunggu Verifikasi'))return {title:'Cocokkan laporan kehilangan',description:'Periksa nama, foto, ciri-ciri, dan lokasi. Jika barang cocok, lanjutkan proses verifikasi.',button:'Periksa Laporan',kind:'verify'};
+ if(item.status==='Belum Terselesaikan')return {title:'Laporan belum terselesaikan',description:'Laporan ini ditandai belum terselesaikan atau pencarian dihentikan.',button:'Lihat Laporan',kind:'detail'};
  return {title:'Pengambilan sedang diproses',description:'Verifikasi sudah berhasil. Tunggu pelapor mengonfirmasi bahwa barang telah diterima.',button:'Lihat Laporan',kind:'detail'};
 }
 
 function getHandlingDescription(item){
  switch(item.status){
-  case 'Belum Ditemukan': return 'Laporan kehilangan sudah tercatat dan masih menunggu informasi barang ditemukan.';
+  case 'Belum Ditemukan':
+  case 'Menunggu Verifikasi': return 'Laporan kehilangan sudah tercatat dan masih menunggu informasi barang ditemukan.';
   case 'Menunggu Pemilik': return 'Barang sudah dilaporkan ditemukan dan sedang menunggu pemilik mengenali ciri khususnya.';
   case 'Menunggu Pengambilan': return 'Ciri barang sudah cocok. Pengambilan menunggu konfirmasi dari pelapor.';
   case 'Selesai Dikembalikan': return 'Barang telah dikonfirmasi kembali kepada pemilik. Laporan selesai.';
+  case 'Belum Terselesaikan': return 'Laporan ditandai belum terselesaikan atau proses penyelesaian dihentikan.';
   default: return 'Perkembangan laporan akan diperbarui setelah ada tindakan berikutnya.';
  }
 }
@@ -170,6 +173,10 @@ export default function App(){
  const [barangTemuan,setBarangTemuan]=useState([]);
  const [loadingTemuan,setLoadingTemuan]=useState(false);
  const [temuanError,setTemuanError]=useState(null);
+ // Week 9 Task 03 (anggota-3-patch): State pembaruan data & status PATCH
+ const [patchLoading,setPatchLoading]=useState(false);
+ const [editModalVisible,setEditModalVisible]=useState(false);
+ const [editForm,setEditForm]=useState({nama:'',kategori:'Elektronik',lokasi:'',deskripsi:''});
  const [isOnline,setIsOnline]=useState(true);
  const [search,setSearch]=useState('');
  const [category,setCategory]=useState('Semua');
@@ -641,31 +648,119 @@ export default function App(){
    }
   }finally{setBusy(false);}
  };
- // Week 8: PATCH memperbarui status penanganan setelah verifikasi dan konfirmasi pelapor.
- const completeReturn=async(target=selected)=>{
+ // Week 8 & Week 9 Task 03 (anggota-3-patch): PATCH API dan Error Handling
+ // 1. updateReportStatus: Memperbarui status penanganan laporan barang via PATCH /barang/:id/status
+ const updateReportStatus=async(target=selected,newStatus='Selesai Dikembalikan',successMsg=null)=>{
   if(!target?.id)return;
-  if(!isOnline){setError('Tidak ada koneksi internet. Periksa koneksi Anda dan coba lagi.');return;}
-  setBusy(true);setError('');
+  if(!isOnline){
+   const netErr='Tidak ada koneksi internet. Periksa koneksi Anda dan coba lagi.';
+   setError(netErr);
+   Alert.alert('Koneksi Terputus',netErr);
+   return;
+  }
+  setPatchLoading(true);setBusy(true);setError('');setMessage('');
+  // Simpan state sebelumnya untuk menjaga konsistensi data jika request gagal (rollback snapshot)
+  const prevSelected=selected;
+  const prevItems=items;
   try{
-   const updated=await guarded(()=>markReturned(target.id));
+   const updated=await guarded(()=>patchBarangStatus(target.id,newStatus));
    if(selected?.id===target.id)setSelected(updated);
-   setMessage('Pengembalian barang berhasil dikonfirmasi. Laporan selesai.');
-   Alert.alert('Laporan Selesai','Pengembalian barang berhasil dikonfirmasi.');
+   setItems(current=>current.map(it=>it.id===target.id?updated:it));
+
+   const finalSuccessMsg=successMsg||`Status laporan berhasil diperbarui menjadi "${updated.status}".`;
+   setMessage(finalSuccessMsg);
+   Alert.alert('Status Berhasil Diperbarui',finalSuccessMsg,[{text:'OK'}]);
+
    await refreshItems();
+   if(typeof refreshAllBarang==='function')await refreshAllBarang();
   }catch(e){
+   // Pastikan data tetap konsisten ketika request gagal
+   if(selected?.id===target.id)setSelected(prevSelected);
+   setItems(prevItems);
+
    if(e.status!==401){
-    const errorMessage=e.message||'Status penanganan belum berhasil diperbarui. Silakan coba lagi.';
+    const errorMessage=(!isOnline||e.isNetworkError)
+     ?'Gagal memperbarui status karena gangguan jaringan atau server tidak terjangkau. Status laporan tidak berubah.'
+     :(e.message||'Status penanganan belum berhasil diperbarui. Silakan coba lagi.');
     setError(errorMessage);
-    Alert.alert('Konfirmasi Pengembalian Gagal',errorMessage);
+    Alert.alert('Pembaruan Status Gagal',errorMessage,[{text:'OK'}]);
    }
-  }finally{setBusy(false);}
+  }finally{
+   setPatchLoading(false);
+   setBusy(false);
+  }
  };
+
+ const completeReturn=async(target=selected)=>{
+  return updateReportStatus(target,'Selesai Dikembalikan','Pengembalian barang berhasil dikonfirmasi. Laporan selesai.');
+ };
+
+ const markReportUnresolved=async(target=selected)=>{
+  return updateReportStatus(target,'Belum Terselesaikan','Laporan barang berhasil ditandai sebagai Belum Terselesaikan.');
+ };
+
+ // 2. submitEditBarang: Memperbarui informasi laporan barang via PATCH /barang/:id
+ const openEditModal=()=>{
+  if(!selected)return;
+  setEditForm({
+   nama:selected.nama||'',
+   kategori:selected.kategori||'Elektronik',
+   lokasi:selected.lokasi||'',
+   deskripsi:selected.deskripsi||''
+  });
+  setEditModalVisible(true);
+ };
+
+ const submitEditBarang=async()=>{
+  if(!selected?.id)return;
+  if(!editForm.nama.trim()||!editForm.lokasi.trim()||!editForm.deskripsi.trim()){
+   Alert.alert('Validasi Formulir','Nama barang, lokasi, dan deskripsi tidak boleh kosong.');
+   return;
+  }
+  if(!isOnline){
+   const netErr='Tidak ada koneksi internet. Periksa koneksi Anda dan coba lagi.';
+   setError(netErr);
+   Alert.alert('Koneksi Terputus',netErr);
+   return;
+  }
+  setPatchLoading(true);setBusy(true);setError('');setMessage('');
+  const prevSelected=selected;
+  const prevItems=items;
+  try{
+   const updated=await guarded(()=>patchBarang(selected.id,editForm));
+   setSelected(updated);
+   setItems(current=>current.map(it=>it.id===selected.id?updated:it));
+   setEditModalVisible(false);
+
+   const msg='Informasi laporan barang berhasil diperbarui.';
+   setMessage(msg);
+   Alert.alert('Pembaruan Berhasil',msg,[{text:'OK'}]);
+
+   await refreshItems();
+   if(typeof refreshAllBarang==='function')await refreshAllBarang();
+  }catch(e){
+   setSelected(prevSelected);
+   setItems(prevItems);
+
+   if(e.status!==401){
+    const errorMessage=(!isOnline||e.isNetworkError)
+     ?'Gagal memperbarui informasi karena gangguan jaringan atau server tidak terjangkau. Data laporan tetap dipertahankan.'
+     :(e.message||'Gagal memperbarui informasi laporan barang.');
+    setError(errorMessage);
+    Alert.alert('Pembaruan Gagal',errorMessage,[{text:'OK'}]);
+   }
+  }finally{
+   setPatchLoading(false);
+   setBusy(false);
+  }
+ };
+
  const filtered=useMemo(()=>items.filter(item=>{
   const text=search.trim().toLocaleLowerCase('id');
   const match=!text||[item.nama,item.kategori,item.lokasi,item.deskripsi,item.jenisLaporan,item.status].some(v=>String(v||'').toLocaleLowerCase('id').includes(text));
   return match&&(category==='Semua'||item.kategori===category)&&(typeFilter==='Semua'||item.jenisLaporan===typeFilter)&&(statusFilter==='Semua'||item.status===statusFilter);
  }),[items,search,category,typeFilter,statusFilter]);
- const followUpItems=useMemo(()=>items.filter(item=>item.status!=='Selesai Dikembalikan'),[items]);
+ const followUpItems=useMemo(()=>items.filter(item=>item.status!=='Selesai Dikembalikan'&&item.status!=='Belum Terselesaikan'),[items]);
  const chooseCategory=cat=>{setCategory(cat);setStatusFilter('Semua');navigate('list');};
  const cover=(child)=> <View style={[styles.pageContent,{maxWidth:wide?860:600,paddingHorizontal:wide?30:18}]}>{child}</View>;
 
@@ -940,10 +1035,42 @@ export default function App(){
       )}
       <Text style={styles.detailName}>{selected.nama}</Text>
       {[['Jenis Laporan',`Barang ${selected.jenisLaporan}`],['Status Penanganan',selected.status],['Kategori',selected.kategori],['Lokasi',selected.lokasi],['Tanggal',selected.tanggal],['Pelapor',selected.pelapor],['Ciri-ciri',selected.deskripsi],['Verifikasi',selected.verificationStatus]].map(([key,value])=><View key={key} style={styles.detailRow}><Text style={styles.detailLabel}>{key}</Text><Text style={styles.detailValue}>{value}</Text></View>)}
+      {/* Week 9 Task 03: Loading indicator saat proses PATCH berlangsung */}
+      {patchLoading && (
+       <View style={styles.submittingBox} accessibilityLiveRegion="polite">
+        <ActivityIndicator size="small" color={primary}/>
+        <Text style={styles.submittingText}>Memperbarui laporan pada server...</Text>
+       </View>
+      )}
       <StatusMessage message={error} error/><StatusMessage message={message}/>
       <UIButton title="Lihat Perkembangan Laporan" secondary onPress={()=>navigate('status')}/>
-      {selected.ownerId!==authUser.id&&selected.status!=='Selesai Dikembalikan'&&selected.verificationStatus!=='Terverifikasi'&&<UIButton title="Verifikasi Kepemilikan Barang" onPress={()=>{setClaimAnswer('');navigate('verify');}}/>}
-      {selected.ownerId===authUser.id&&selected.verificationStatus==='Terverifikasi'&&selected.status==='Menunggu Pengambilan'&&<UIButton title="Konfirmasi Barang Sudah Diterima" onPress={()=>Alert.alert('Konfirmasi Pengembalian','Pastikan barang benar-benar sudah diterima pemilik sebelum menyelesaikan laporan.',[{text:'Belum',style:'cancel'},{text:'Ya, sudah diterima',onPress:()=>completeReturn(selected)}])} disabled={busy}/>}
+      {selected.ownerId!==authUser.id&&selected.status!=='Selesai Dikembalikan'&&selected.status!=='Belum Terselesaikan'&&selected.verificationStatus!=='Terverifikasi'&&<UIButton title="Verifikasi Kepemilikan Barang" onPress={()=>{setClaimAnswer('');navigate('verify');}}/>}
+      {/* Week 9 Task 03 (anggota-3-patch): Aksi Pemilik Laporan via PATCH API */}
+      {selected.ownerId===authUser.id&&selected.verificationStatus==='Terverifikasi'&&selected.status==='Menunggu Pengambilan'&&(
+       <UIButton
+        title={patchLoading ? "Memproses..." : "Konfirmasi Barang Sudah Diterima"}
+        loading={patchLoading}
+        disabled={busy||patchLoading}
+        onPress={()=>Alert.alert('Konfirmasi Pengembalian','Pastikan barang benar-benar sudah diterima pemilik sebelum menyelesaikan laporan.',[{text:'Belum',style:'cancel'},{text:'Ya, sudah diterima',onPress:()=>completeReturn(selected)}])}
+       />
+      )}
+      {selected.ownerId===authUser.id&&selected.status!=='Selesai Dikembalikan'&&selected.status!=='Belum Terselesaikan'&&(
+       <View style={{gap:8,marginTop:6}}>
+        <UIButton
+         title="✏️ Edit Informasi Laporan (PATCH)"
+         secondary
+         disabled={busy||patchLoading}
+         onPress={openEditModal}
+        />
+        <UIButton
+         title="Tandai Belum Terselesaikan"
+         danger
+         secondary
+         disabled={busy||patchLoading}
+         onPress={()=>Alert.alert('Tandai Belum Terselesaikan','Apakah Anda yakin ingin menandai laporan ini sebagai Belum Terselesaikan?',[{text:'Batal',style:'cancel'},{text:'Ya, Tandai',onPress:()=>markReportUnresolved(selected)}])}
+        />
+       </View>
+      )}
      </>}
      {screen==='status'&&selected&&<>
       <UIButton title="‹ Kembali ke Detail" secondary onPress={()=>navigate('detail')}/>
@@ -953,9 +1080,9 @@ export default function App(){
        <Text style={styles.statusCurrent}>{selected.status}</Text>
        <Text style={styles.muted}>{getHandlingDescription(selected)}</Text>
        <View style={styles.timelineRow}><Text style={styles.timelineDone}>✓</Text><View style={styles.timelineText}><Text style={styles.timelineTitle}>Laporan diterima</Text><Text style={styles.mutedSmall}>Informasi barang tersimpan di TemuKampus.</Text></View></View>
-       <View style={styles.timelineRow}><Text style={selected.status==='Belum Ditemukan'||selected.status==='Menunggu Pemilik'?styles.timelineActive:styles.timelineDone}>{selected.status==='Belum Ditemukan'||selected.status==='Menunggu Pemilik'?'◉':'✓'}</Text><View style={styles.timelineText}><Text style={styles.timelineTitle}>{selected.jenisLaporan==='Hilang'?'Pencarian barang':'Menunggu pemilik'}</Text><Text style={styles.mutedSmall}>{selected.jenisLaporan==='Hilang'?'Laporan menunggu kecocokan dengan barang temuan.':'Pemilik memeriksa ciri khusus barang.'}</Text></View></View>
+       <View style={styles.timelineRow}><Text style={selected.status==='Belum Ditemukan'||selected.status==='Menunggu Pemilik'||selected.status==='Menunggu Verifikasi'?styles.timelineActive:styles.timelineDone}>{selected.status==='Belum Ditemukan'||selected.status==='Menunggu Pemilik'||selected.status==='Menunggu Verifikasi'?'◉':'✓'}</Text><View style={styles.timelineText}><Text style={styles.timelineTitle}>{selected.jenisLaporan==='Hilang'?'Pencarian barang':'Menunggu pemilik'}</Text><Text style={styles.mutedSmall}>{selected.jenisLaporan==='Hilang'?'Laporan menunggu kecocokan dengan barang temuan.':'Pemilik memeriksa ciri khusus barang.'}</Text></View></View>
        <View style={styles.timelineRow}><Text style={selected.status==='Menunggu Pengambilan'?'◉':selected.status==='Selesai Dikembalikan'?'✓':'○'} style={selected.status==='Menunggu Pengambilan'?styles.timelineActive:selected.status==='Selesai Dikembalikan'?styles.timelineDone:styles.timelinePending}>{selected.status==='Menunggu Pengambilan'?'◉':selected.status==='Selesai Dikembalikan'?'✓':'○'}</Text><View style={styles.timelineText}><Text style={styles.timelineTitle}>Menunggu pengambilan</Text><Text style={styles.mutedSmall}>Ciri barang telah diverifikasi dan menunggu konfirmasi pelapor.</Text></View></View>
-       <View style={styles.timelineRow}><Text style={selected.status==='Selesai Dikembalikan'?styles.timelineDone:styles.timelinePending}>{selected.status==='Selesai Dikembalikan'?'✓':'○'}</Text><View style={styles.timelineText}><Text style={styles.timelineTitle}>Selesai dikembalikan</Text><Text style={styles.mutedSmall}>Pelapor mengonfirmasi barang sudah diterima.</Text></View></View>
+       <View style={styles.timelineRow}><Text style={selected.status==='Selesai Dikembalikan'?styles.timelineDone:selected.status==='Belum Terselesaikan'?styles.timelinePending:styles.timelinePending}>{selected.status==='Selesai Dikembalikan'?'✓':selected.status==='Belum Terselesaikan'?'✕':'○'}</Text><View style={styles.timelineText}><Text style={styles.timelineTitle}>{selected.status==='Belum Terselesaikan'?'Belum terselesaikan':'Selesai dikembalikan'}</Text><Text style={styles.mutedSmall}>{selected.status==='Belum Terselesaikan'?'Laporan ditutup dengan status belum terselesaikan.':'Pelapor mengonfirmasi barang sudah diterima.'}</Text></View></View>
       </View>
      </>}
      {screen==='verify'&&selected&&<>
@@ -983,6 +1110,31 @@ export default function App(){
     </>)}
    </ScrollView>}
   <BottomNav active={activeTab} onSelect={target=>{if(target==='report')startReport('Hilang');else navigate(target);}}/>
+  {/* Week 9 Task 03 (anggota-3-patch): Modal Edit Informasi Laporan via PATCH API */}
+  <Modal visible={editModalVisible} transparent animationType="slide" onRequestClose={()=>setEditModalVisible(false)}>
+   <KeyboardAvoidingView behavior={Platform.OS==='ios'?'padding':'height'} style={styles.modalOverlay}>
+    <View style={[styles.modalCard,{maxWidth:wide?520:420}]}>
+     <View style={styles.modalHeader}>
+      <Text style={styles.modalTitle}>✏️ Edit Informasi Laporan</Text>
+      <Pressable onPress={()=>setEditModalVisible(false)} style={styles.modalCloseBtn} accessibilityRole="button" accessibilityLabel="Tutup modal edit">
+       <Text style={styles.modalCloseText}>✕</Text>
+      </Pressable>
+     </View>
+     <Text style={styles.modalDesc}>Perbarui data laporan barang yang Anda buat (dikirim via PATCH API):</Text>
+     <Field label="Nama Barang" value={editForm.nama} onChangeText={v=>setEditForm(f=>({...f,nama:v}))}/>
+     <Text style={styles.label}>Kategori</Text>
+     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.choiceRow}>
+      {categories.map(cat=><Choice key={cat} label={cat} selected={editForm.kategori===cat} onPress={()=>setEditForm(f=>({...f,kategori:cat}))}/>)}
+     </ScrollView>
+     <Field label="Lokasi" value={editForm.lokasi} onChangeText={v=>setEditForm(f=>({...f,lokasi:v}))}/>
+     <Field label="Ciri-ciri / Deskripsi" value={editForm.deskripsi} onChangeText={v=>setEditForm(f=>({...f,deskripsi:v}))} multiline/>
+     <View style={styles.modalActions}>
+      <UIButton title="Batal" secondary disabled={patchLoading} onPress={()=>setEditModalVisible(false)} style={{flex:1}}/>
+      <UIButton title={patchLoading ? 'Menyimpan...' : 'Simpan (PATCH)'} loading={patchLoading} disabled={patchLoading} onPress={submitEditBarang} style={{flex:1}}/>
+     </View>
+    </View>
+   </KeyboardAvoidingView>
+  </Modal>
  </SafeAreaView>;
 }
 

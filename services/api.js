@@ -331,10 +331,42 @@ export const verifyBarang=async(id,jawaban)=>{
  const response=await request(`/barang/${id}/verify`,{method:'POST',authenticated:true,body:{jawaban}});
  return {item:mapBarang(response.data),message:response.message};
 };
-// Week 8: PATCH memperbarui status penanganan setelah verifikasi dan konfirmasi pelapor.
-export const markReturned=async id=>{
- const response=await request(`/barang/${id}/status`,{method:'PATCH',authenticated:true,body:{status:'Selesai Dikembalikan'}});
- return mapBarang(response.data);
+// Week 8 & Week 9 Task 03 (anggota-3-patch):
+// 1. patchBarangStatus(id, status): Memperbarui status penanganan laporan barang via PATCH /barang/:id/status
+export const patchBarangStatus = async (id, status) => {
+  const response = await request(`/barang/${id}/status`, {
+    method: 'PATCH',
+    authenticated: true,
+    body: { status },
+  });
+  return mapBarang(response.data);
+};
+
+// 2. patchBarang(id, data): Memperbarui informasi laporan barang (nama, lokasi, deskripsi, dll) via PATCH /barang/:id
+export const patchBarang = async (id, data) => {
+  const payload = {};
+  if (data.nama !== undefined) payload.nama = String(data.nama).trim();
+  if (data.lokasi !== undefined) payload.lokasi = String(data.lokasi).trim();
+  if (data.deskripsi !== undefined) payload.deskripsi = String(data.deskripsi).trim();
+  if (data.kategori !== undefined) payload.kategori = data.kategori;
+  if (data.status !== undefined) payload.status = data.status;
+
+  const response = await request(`/barang/${id}`, {
+    method: 'PATCH',
+    authenticated: true,
+    body: payload,
+  });
+  return mapBarang(response.data);
+};
+
+// 3. markReturned(id): Konfirmasi pengembalian barang selesai
+export const markReturned = async id => {
+  return patchBarangStatus(id, 'Selesai Dikembalikan');
+};
+
+// 4. markUnresolved(id): Menandai laporan barang belum terselesaikan
+export const markUnresolved = async id => {
+  return patchBarangStatus(id, 'Belum Terselesaikan');
 };
 
 export function resolveImageUrl(image){
