@@ -7,9 +7,15 @@ import {
   haversineDistanceMeters,
   isInsideGeofence,
   isValidAccuracy,
+  isAccuracyAcceptable,
   getMarkerPinColor,
   calculateBoundingRegion,
   formatMarkerInfo,
+  formatGeocodedAddress,
+  calculateGeofenceTransition,
+  CAMPUS_PRESETS,
+  formatGeofenceEventLog,
+  getBatteryOptimizationSettings,
 } from '../utils/locationMath.mjs';
 
 test('Week 10 Task 01 — validasi koordinat GPS dan format koordinat', () => {
@@ -128,7 +134,7 @@ test('Week 10 Task 02 — Map marker pin colors, camera bounding region, dan mar
   assert.equal(userInfo.address, 'Jl. Veteran No. 8');
 });
 
-test('Week 10 Task 03 — menghitung jarak dan mendeteksi geofence', () => {
+test('Week 10 Task 03 — menghitung jarak Haversine dan isInsideGeofence', () => {
   const center = { latitude: -7.9666, longitude: 112.6326 };
   const samePoint = { latitude: -7.9666, longitude: 112.6326 };
   const nearbyPoint = { latitude: -7.9670, longitude: 112.6326 };
@@ -140,4 +146,186 @@ test('Week 10 Task 03 — menghitung jarak dan mendeteksi geofence', () => {
   assert.equal(isInsideGeofence(nearbyPoint, center, 150), true);
   assert.equal(isInsideGeofence(farPoint, center, 300), false);
   assert.equal(isInsideGeofence(nearbyPoint, center, 0), false);
+});
+
+test('Week 10 Task 03 — Reverse Geocoding: format alamat dari objek geocoding', () => {
+  // Objek geocoding lengkap
+  const placeFull = {
+    street: 'Jl. Veteran',
+    streetNumber: 'No. 8',
+    district: 'Lowokwaru',
+    subregion: 'Malang',
+    city: 'Kota Malang',
+    region: 'Jawa Timur',
+    postalCode: '65145',
+    country: 'Indonesia',
+  };
+  const addressFull = formatGeocodedAddress(placeFull);
+  assert.ok(addressFull.includes('Jl. Veteran No. 8'));
+  assert.ok(addressFull.includes('Lowokwaru'));
+  assert.ok(addressFull.includes('Kota Malang'));
+  assert.ok(addressFull.includes('Jawa Timur'));
+  assert.ok(addressFull.includes('65145'));
+  assert.ok(addressFull.includes('Indonesia'));
+
+  // Objek parsial tanpa nama jalan/nomor
+  const placePartial = {
+    district: 'Klojen',
+    city: 'Malang',
+    region: 'Jawa Timur',
+    country: 'Indonesia',
+  };
+  const addressPartial = formatGeocodedAddress(placePartial);
+  assert.equal(addressPartial, 'Klojen, Malang, Jawa Timur, Indonesia');
+
+  // Objek kosong atau null
+  assert.equal(formatGeocodedAddress(null), '');
+  assert.equal(formatGeocodedAddress(undefined), '');
+  assert.equal(formatGeocodedAddress({}), '');
+
+  // Deduping bagian alamat yang identik (case-insensitive)
+  const placeDuplicate = {
+    street: 'Kampus',
+    district: 'Malang',
+    city: 'malang',
+    country: 'Indonesia',
+  };
+  const addressDedup = formatGeocodedAddress(placeDuplicate);
+  assert.equal(addressDedup, 'Kampus, Malang, Indonesia');
+});
+
+test('Week 10 Task 03 — Geofencing: deteksi transisi Enter Event dan Exit Event', () => {
+  const center = { latitude: -7.9666, longitude: 112.6326 };
+  const insidePoint = { latitude: -7.9667, longitude: 112.6326 }; // ~11 meter
+  const outsidePoint = { latitude: -7.9710, longitude: 112.6326 }; // ~489 meter
+
+  // 1. Initial State Check (wasInside = null)
+  const initialInside = calculateGeofenceTransition({
+    wasInside: null,
+    currentLocation: insidePoint,
+    center,
+    radius: 300,
+  });
+  assert.equal(initialInside.nowInside, true);
+  assert.equal(initialInside.event, null); // Belum ada transisi karena ini status awal
+
+  const initialOutside = calculateGeofenceTransition({
+    wasInside: null,
+    currentLocation: outsidePoint,
+    center,
+    radius: 300,
+  });
+  assert.equal(initialOutside.nowInside, false);
+  assert.equal(initialOutside.event, null);
+
+  // 2. ENTER Event (sebelumnya di luar, sekarang masuk ke dalam)
+  const enterTransition = calculateGeofenceTransition({
+    wasInside: false,
+    currentLocation: insidePoint,
+    center,
+    radius: 300,
+  });
+  assert.equal(enterTransition.nowInside, true);
+  assert.equal(enterTransition.event, 'ENTER');
+
+  // 3. EXIT Event (sebelumnya di dalam, sekarang keluar)
+  const exitTransition = calculateGeofenceTransition({
+    wasInside: true,
+    currentLocation: outsidePoint,
+    center,
+    radius: 300,
+  });
+  assert.equal(exitTransition.nowInside, false);
+  assert.equal(exitTransition.event, 'EXIT');
+
+  // 4. No Event (tetap di dalam)
+  const stayInside = calculateGeofenceTransition({
+    wasInside: true,
+    currentLocation: insidePoint,
+    center,
+    radius: 300,
+  });
+  assert.equal(stayInside.nowInside, true);
+  assert.equal(stayInside.event, null);
+
+  // 5. No Event (tetap di luar)
+  const stayOutside = calculateGeofenceTransition({
+    wasInside: false,
+    currentLocation: outsidePoint,
+    center,
+    radius: 300,
+  });
+  assert.equal(stayOutside.nowInside, false);
+  assert.equal(stayOutside.event, null);
+});
+
+test('Week 10 Task 03 — Geofencing: mekanisme Hysteresis mencegah flapping di perbatasan', () => {
+  const center = { latitude: -7.9666, longitude: 112.6326 };
+  // 1 deg lat ~ 111,000 m. Jarak 305 meter: ~ 0.002747 deg
+  const radius = 300;
+  const hysteresis = 20; // threshold keluar: 320m, threshold masuk: 280m
+
+  // Titik berada di jarak 308 meter (tepat di luar radius 300m tapi masih dalam buffer hysteresis 320m)
+  const nearBorderPoint = { latitude: -7.9666 + 308 / 111000, longitude: 112.6326 };
+  const dist = haversineDistanceMeters(nearBorderPoint, center);
+  assert.ok(dist > 300 && dist < 320, `Jarak (${dist}m) harus antara 300m dan 320m`);
+
+  // Jika sebelumnya perangkat di DALAM (wasInside = true):
+  // Karena dist <= (300 + 20 = 320m), perangkat tetap dianggap di dalam (mencegah false EXIT akibat GPS jitter)
+  const transitionInside = calculateGeofenceTransition({
+    wasInside: true,
+    currentLocation: nearBorderPoint,
+    center,
+    radius,
+    hysteresis,
+  });
+  assert.equal(transitionInside.nowInside, true);
+  assert.equal(transitionInside.event, null);
+
+  // Jika sebelumnya perangkat di LUAR (wasInside = false):
+  // Untuk memicu ENTER, perangkat harus masuk lebih dalam dari (300 - 20 = 280m).
+  // Karena 308m > 280m, perangkat tetap di luar (mencegah false ENTER)
+  const transitionOutside = calculateGeofenceTransition({
+    wasInside: false,
+    currentLocation: nearBorderPoint,
+    center,
+    radius,
+    hysteresis,
+  });
+  assert.equal(transitionOutside.nowInside, false);
+  assert.equal(transitionOutside.event, null);
+});
+
+test('Week 10 Task 03 — Preset area kampus TemuBarang dan format log peristiwa', () => {
+  // Validasi presets kampus
+  assert.ok(CAMPUS_PRESETS.length >= 4);
+  for (const preset of CAMPUS_PRESETS) {
+    assert.ok(preset.id);
+    assert.ok(preset.name);
+    assert.ok(hasValidCoordinates(preset));
+    assert.ok(preset.defaultRadius > 0);
+  }
+
+  // Format log peristiwa
+  const enterLog = formatGeofenceEventLog('ENTER', 1700000000000);
+  assert.ok(enterLog.includes('Memasuki Area (ENTER)'));
+
+  const exitLog = formatGeofenceEventLog('EXIT', 1700000000000);
+  assert.ok(exitLog.includes('Keluar dari Area (EXIT)'));
+});
+
+test('Week 10 Task 03 — Location Battery Optimization: parameter dan validasi filter sinyal rendah', () => {
+  const settings = getBatteryOptimizationSettings();
+  assert.equal(settings.accuracyMode, 'Balanced');
+  assert.equal(settings.timeIntervalMs, 10000);
+  assert.equal(settings.distanceIntervalMeters, 25);
+  assert.equal(settings.maxLowAccuracyFilterMeters, 100);
+
+  // Filter akurasi rendah (> 100m)
+  assert.equal(isAccuracyAcceptable(15), true);
+  assert.equal(isAccuracyAcceptable(80), true);
+  assert.equal(isAccuracyAcceptable(100), true);
+  assert.equal(isAccuracyAcceptable(101), false);
+  assert.equal(isAccuracyAcceptable(250), false);
+  assert.equal(isAccuracyAcceptable(null), false);
 });
