@@ -7,17 +7,27 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import MapView, { Callout, Circle, Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getCurrentLocationWithAddress } from '../services/location';
+import {
+  getBatteryOptimizationConfig,
+  getCurrentLocationWithAddress,
+  getGPSCoordinates,
+  isLocationServiceEnabled,
+  reverseGeocodeCoordinates,
+} from '../services/location';
 import {
   calculateBoundingRegion,
+  calculateGeofenceTransition,
+  CAMPUS_PRESETS,
   formatAccuracy,
   formatCoordinate,
+  formatGeofenceEventLog,
   formatMarkerInfo,
   getMarkerPinColor,
   hasValidCoordinates,
@@ -33,7 +43,7 @@ const FALLBACK_REGION = {
   latitudeDelta: 0.035,
   longitudeDelta: 0.035,
 };
-const RADIUS_OPTIONS = [150, 300, 500];
+const RADIUS_OPTIONS = [100, 150, 300, 500];
 
 function ActionButton({ title, onPress, disabled = false, secondary = false, icon = null }) {
   return (
@@ -78,24 +88,39 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState('');
 
-  // State peta & camera position
+  // State peta & camera position (Task 2)
   const [mapReady, setMapReady] = useState(false);
-  const [mapError, setMapError] = useState('');
   const [cameraCenter, setCameraCenter] = useState(FALLBACK_REGION);
   const [currentZoom, setCurrentZoom] = useState(15);
   const [is3D, setIs3D] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState(null);
   const [filterType, setFilterType] = useState('all'); // 'all' | 'Hilang' | 'Ditemukan'
 
+  // State Reverse Geocoding Interaktif (Task 3)
+  const [rgLat, setRgLat] = useState('-7.9666');
+  const [rgLng, setRgLng] = useState('112.6326');
+  const [rgLoading, setRgLoading] = useState(false);
+  const [rgResult, setRgResult] = useState(null);
+  const [rgError, setRgError] = useState('');
+
   // State Geofencing (Task 3)
+  const [geofenceName, setGeofenceName] = useState('Zona Kampus TemuBarang');
   const [geofenceCenter, setGeofenceCenter] = useState(null);
+  const [geofenceCenterAddress, setGeofenceCenterAddress] = useState('');
+  const [geofenceCenterAddressLoading, setGeofenceCenterAddressLoading] = useState(false);
   const [geofenceRadius, setGeofenceRadius] = useState(300);
   const [tracking, setTracking] = useState(false);
   const [insideGeofence, setInsideGeofence] = useState(null);
   const [geofenceMessage, setGeofenceMessage] = useState('');
   const [lastEvent, setLastEvent] = useState('');
+  const [eventHistory, setEventHistory] = useState([]);
   const [loadedSettingsKey, setLoadedSettingsKey] = useState(null);
   const settingsKey = useMemo(() => `temubarang.geofence.settings.v1.${userId ?? 'guest'}`, [userId]);
+
+  // Tambahkan peristiwa ke riwayat (maksimal 5 peristiwa terakhir)
+  const addEventToHistory = useCallback((log) => {
+    setEventHistory(prev => [log, ...prev].slice(0, 5));
+  }, []);
 
   // Load geofence settings dari AsyncStorage
   useEffect(() => {
@@ -109,6 +134,7 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
         const saved = JSON.parse(raw);
         if (hasValidCoordinates(saved.center)) setGeofenceCenter(saved.center);
         if (RADIUS_OPTIONS.includes(Number(saved.radius))) setGeofenceRadius(Number(saved.radius));
+        if (saved.name) setGeofenceName(saved.name);
       })
       .catch(() => {})
       .finally(() => { if (active) setLoadedSettingsKey(settingsKey); });
@@ -118,9 +144,33 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
   // Simpan geofence settings ke AsyncStorage
   useEffect(() => {
     if (loadedSettingsKey !== settingsKey) return;
-    AsyncStorage.setItem(settingsKey, JSON.stringify({ center: geofenceCenter, radius: geofenceRadius }))
-      .catch(() => {});
-  }, [loadedSettingsKey, settingsKey, geofenceCenter, geofenceRadius]);
+    AsyncStorage.setItem(
+      settingsKey,
+      JSON.stringify({ center: geofenceCenter, radius: geofenceRadius, name: geofenceName })
+    ).catch(() => {});
+  }, [loadedSettingsKey, settingsKey, geofenceCenter, geofenceRadius, geofenceName]);
+
+  // Reverse geocode pusat geofence otomatis saat geofenceCenter berubah
+  useEffect(() => {
+    if (!hasValidCoordinates(geofenceCenter)) {
+      setGeofenceCenterAddress('');
+      return;
+    }
+    let active = true;
+    setGeofenceCenterAddressLoading(true);
+    reverseGeocodeCoordinates(geofenceCenter)
+      .then(res => {
+        if (!active) return;
+        setGeofenceCenterAddress(res.address || 'Alamat belum tersedia untuk koordinat ini');
+      })
+      .catch(() => {
+        if (active) setGeofenceCenterAddress('Alamat tidak dapat dimuat');
+      })
+      .finally(() => {
+        if (active) setGeofenceCenterAddressLoading(false);
+      });
+    return () => { active = false; };
+  }, [geofenceCenter?.latitude, geofenceCenter?.longitude]);
 
   // Laporan yang valid koordinatnya
   const mappedItems = useMemo(
@@ -357,6 +407,63 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
     }
   }, [focusItem?.id, focusItem?.latitude, focusItem?.longitude, moveCameraTo]);
 
+  // =========================================================================
+  // TASK 3: REVERSE GEOCODING RUNNER
+  // =========================================================================
+  const executeReverseGeocode = useCallback(async (targetLat, targetLng) => {
+    const lat = targetLat !== undefined ? targetLat : rgLat;
+    const lng = targetLng !== undefined ? targetLng : rgLng;
+
+    if (!hasValidCoordinates({ latitude: lat, longitude: lng })) {
+      setRgError('Koordinat tidak valid. Masukkan latitude (-90 s/d 90) dan longitude (-180 s/d 180).');
+      setRgResult(null);
+      return;
+    }
+
+    setRgLoading(true);
+    setRgError('');
+    setRgResult(null);
+
+    try {
+      const res = await reverseGeocodeCoordinates({ latitude: lat, longitude: lng });
+      if (res.success && res.address) {
+        setRgResult(res);
+      } else {
+        setRgError(res.warning || 'Alamat tidak ditemukan untuk koordinat tersebut.');
+      }
+    } catch (err) {
+      setRgError(err?.message || 'Terjadi kesalahan saat memproses reverse geocoding.');
+    } finally {
+      setRgLoading(false);
+    }
+  }, [rgLat, rgLng]);
+
+  // Gunakan hasil Reverse Geocoding sebagai Pusat Geofence
+  const applyRgAsGeofenceCenter = useCallback(() => {
+    if (!rgResult || !hasValidCoordinates(rgResult)) return;
+    if (tracking) stopTracking();
+    const center = {
+      latitude: Number(rgResult.latitude),
+      longitude: Number(rgResult.longitude),
+    };
+    setGeofenceCenter(center);
+    setGeofenceName(rgResult.address?.split(',')[0] || 'Titik Hasil Geocoding');
+    setGeofenceCenterAddress(rgResult.address);
+    wasInsideRef.current = null;
+    setInsideGeofence(null);
+    setGeofenceMessage(`Pusat area pantauan diperbarui dari hasil Reverse Geocoding.`);
+    moveCameraTo(center, { zoom: 16.5, delta: 0.010 });
+    setSelectedMarker({
+      type: 'geofence',
+      latitude: center.latitude,
+      longitude: center.longitude,
+      radius: geofenceRadius,
+    });
+  }, [rgResult, tracking, geofenceRadius, moveCameraTo]);
+
+  // =========================================================================
+  // TASK 3: GEOFENCING CORE & BATTERY OPTIMIZATION
+  // =========================================================================
   // Geofencing tracking cleanup saat unmount
   const stopTracking = useCallback(() => {
     watchRef.current?.remove?.();
@@ -364,6 +471,7 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
     wasInsideRef.current = null;
     setInsideGeofence(null);
     setTracking(false);
+    setGeofenceMessage('Pemantauan area dihentikan.');
   }, []);
 
   useEffect(() => () => {
@@ -382,11 +490,30 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
       longitude: Number(currentLocation.longitude),
     };
     setGeofenceCenter(center);
+    setGeofenceName('Lokasi GPS Pengguna');
     wasInsideRef.current = null;
     setInsideGeofence(null);
     setGeofenceMessage('Pusat area pantauan menggunakan lokasi GPS saat ini.');
     moveCameraTo(center, { zoom: 16, delta: 0.012 });
   };
+
+  const selectCampusPreset = useCallback((preset) => {
+    if (tracking) stopTracking();
+    const center = { latitude: preset.latitude, longitude: preset.longitude };
+    setGeofenceCenter(center);
+    setGeofenceName(preset.name);
+    setGeofenceRadius(preset.defaultRadius || 300);
+    wasInsideRef.current = null;
+    setInsideGeofence(null);
+    setGeofenceMessage(`Pusat area pantauan diatur ke ${preset.name}.`);
+    moveCameraTo(center, { zoom: 16.5, delta: 0.010 });
+    setSelectedMarker({
+      type: 'geofence',
+      latitude: center.latitude,
+      longitude: center.longitude,
+      radius: preset.defaultRadius || 300,
+    });
+  }, [tracking, stopTracking, moveCameraTo]);
 
   const handleMapLongPress = event => {
     if (tracking) stopTracking();
@@ -397,6 +524,7 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
       longitude: Number(coordinate.longitude),
     };
     setGeofenceCenter(center);
+    setGeofenceName('Titik Terpilih pada Peta');
     wasInsideRef.current = null;
     setInsideGeofence(null);
     setGeofenceMessage('Pusat area pantauan dipilih dari titik pada peta.');
@@ -412,9 +540,16 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
     if (tracking) return;
     setLocationError('');
     try {
+      const serviceEnabled = await isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        Alert.alert('GPS Tidak Aktif', 'Layanan GPS/lokasi pada perangkat tidak aktif. Mohon aktifkan GPS perangkat Anda terlebih dahulu.');
+        return;
+      }
+
       const permission = await Location.requestForegroundPermissionsAsync();
       if (!permission.granted) {
-        throw new Error('Izin lokasi diperlukan untuk memantau area. Aktifkan izin lokasi saat aplikasi digunakan.');
+        Alert.alert('Izin Lokasi Ditolak', 'Izin lokasi diperlukan untuk memantau area. Izinkan TemuBarang mengakses lokasi saat aplikasi digunakan.');
+        return;
       }
 
       let baseline = currentLocation;
@@ -430,23 +565,37 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
           longitude: Number(baseline.longitude),
         };
         setGeofenceCenter(center);
+        setGeofenceName('Lokasi GPS Pengguna');
         setGeofenceMessage('Pusat area pantauan otomatis menggunakan lokasi GPS saat ini.');
       }
 
       if (Number.isFinite(baseline.accuracy) && baseline.accuracy > 100) {
-        setLocationError('Akurasi GPS masih rendah. Tunggu di area terbuka atau pilih titik yang lebih akurat sebelum memulai pemantauan.');
+        setLocationError('Akurasi GPS masih rendah (>100m). Tunggu di area terbuka sebelum memulai pemantauan.');
         return;
       }
-      const initialInside = isInsideGeofence(baseline, center, geofenceRadius);
-      wasInsideRef.current = initialInside;
-      setInsideGeofence(initialInside);
-      setLastEvent(initialInside ? 'Perangkat berada di dalam area pantauan.' : 'Perangkat berada di luar area pantauan.');
+
+      const transition = calculateGeofenceTransition({
+        wasInside: null,
+        currentLocation: baseline,
+        center,
+        radius: geofenceRadius,
+      });
+
+      wasInsideRef.current = transition.nowInside;
+      setInsideGeofence(transition.nowInside);
+      const initialLog = transition.nowInside
+        ? 'Perangkat terdeteksi di dalam area pantauan.'
+        : 'Perangkat terdeteksi di luar area pantauan.';
+      setLastEvent(initialLog);
+      addEventToHistory(transition.nowInside ? 'ENTER (Status Awal)' : 'EXIT (Status Awal)');
+
+      const optConfig = getBatteryOptimizationConfig();
 
       const subscription = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 10000,
-          distanceInterval: 25,
+          accuracy: optConfig.accuracy,
+          timeInterval: optConfig.timeInterval,
+          distanceInterval: optConfig.distanceInterval,
           mayShowUserSettingsDialog: true,
         },
         position => {
@@ -461,28 +610,28 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
             ...nextLocation,
           }));
 
-          if (Number.isFinite(nextLocation.accuracy) && nextLocation.accuracy > 100) {
-            setLocationError('Sinyal GPS kurang akurat; sampel ini tidak dipakai untuk mengubah status area.');
-            return;
-          }
-          const distance = haversineDistanceMeters(nextLocation, center);
-          const hysteresis = Math.max(10, Math.min(25, geofenceRadius * 0.1));
-          const threshold = wasInsideRef.current ? geofenceRadius + hysteresis : Math.max(0, geofenceRadius - hysteresis);
-          const nowInside = distance <= threshold;
-          if (wasInsideRef.current === null) {
-            wasInsideRef.current = nowInside;
-            setInsideGeofence(nowInside);
+          if (Number.isFinite(nextLocation.accuracy) && nextLocation.accuracy > optConfig.accuracyThreshold) {
+            setLocationError('Sinyal GPS kurang akurat (>100m); sampel diabaikan untuk menghemat daya & mencegah false alarm.');
             return;
           }
 
-          if (wasInsideRef.current !== nowInside) {
-            const eventTitle = nowInside ? 'Memasuki Area Pantauan' : 'Keluar dari Area Pantauan';
-            const eventMessage = nowInside
-              ? 'Perangkat terdeteksi memasuki area pantauan TemuBarang.'
-              : 'Perangkat terdeteksi keluar dari area pantauan TemuBarang.';
-            wasInsideRef.current = nowInside;
-            setInsideGeofence(nowInside);
-            setLastEvent(`${eventTitle} • ${new Date().toLocaleTimeString('id-ID')}`);
+          const result = calculateGeofenceTransition({
+            wasInside: wasInsideRef.current,
+            currentLocation: nextLocation,
+            center,
+            radius: geofenceRadius,
+          });
+
+          if (wasInsideRef.current !== result.nowInside && result.event) {
+            wasInsideRef.current = result.nowInside;
+            setInsideGeofence(result.nowInside);
+            const eventTitle = result.event === 'ENTER' ? '🔔 Memasuki Area Pantauan' : '⚠️ Keluar dari Area Pantauan';
+            const eventMessage = result.event === 'ENTER'
+              ? `Perangkat terdeteksi memasuki area pantauan "${geofenceName}". Jarak: ${Math.round(result.distance)} meter (Radius: ${geofenceRadius}m).`
+              : `Perangkat terdeteksi keluar dari area pantauan "${geofenceName}". Jarak: ${Math.round(result.distance)} meter (Radius: ${geofenceRadius}m).`;
+            const logEntry = formatGeofenceEventLog(result.event);
+            setLastEvent(logEntry);
+            addEventToHistory(logEntry);
             Alert.alert(eventTitle, eventMessage);
           }
         },
@@ -491,7 +640,7 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
 
       watchRef.current = subscription;
       setTracking(true);
-      setGeofenceMessage('Pemantauan area aktif selama halaman Peta terbuka.');
+      setGeofenceMessage('Pemantauan area aktif di foreground (Location Battery Optimization aktif).');
     } catch (error) {
       const message = error?.message || 'Pemantauan area tidak dapat dimulai.';
       setLocationError(message);
@@ -507,6 +656,53 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
     setGeofenceMessage('Radius diperbarui. Aktifkan kembali pemantauan area.');
   };
 
+  // Simulasi Pergerakan untuk Pengujian & Demo Evaluasi Praktikum
+  const simulatePosition = useCallback((targetType) => {
+    if (!hasValidCoordinates(geofenceCenter)) {
+      Alert.alert('Pusat Belum Ditentukan', 'Tentukan pusat area pantauan terlebih dahulu.');
+      return;
+    }
+    const center = geofenceCenter;
+    // 1 deg latitude ~ 111,000 meter
+    const offsetMeters = targetType === 'inside' ? Math.min(geofenceRadius * 0.35, 40) : geofenceRadius + 160;
+    const latOffset = offsetMeters / 111000;
+    const simCoords = {
+      latitude: center.latitude + latOffset,
+      longitude: center.longitude,
+      accuracy: 12,
+      timestamp: Date.now(),
+      address: `Titik Simulasi Pengujian (${targetType === 'inside' ? 'Dalam Radius' : 'Luar Radius'})`,
+    };
+
+    setCurrentLocation(simCoords);
+    moveCameraTo(simCoords, { zoom: 16.5 });
+
+    const result = calculateGeofenceTransition({
+      wasInside: wasInsideRef.current,
+      currentLocation: simCoords,
+      center,
+      radius: geofenceRadius,
+    });
+
+    if (wasInsideRef.current !== result.nowInside && result.event) {
+      wasInsideRef.current = result.nowInside;
+      setInsideGeofence(result.nowInside);
+      const eventTitle = result.event === 'ENTER' ? '🔔 Memasuki Area Pantauan (ENTER)' : '⚠️ Keluar dari Area Pantauan (EXIT)';
+      const eventMessage = result.event === 'ENTER'
+        ? `Perangkat terdeteksi memasuki area pantauan "${geofenceName}". Jarak: ${Math.round(result.distance)} meter (Radius: ${geofenceRadius}m).`
+        : `Perangkat terdeteksi keluar dari area pantauan "${geofenceName}". Jarak: ${Math.round(result.distance)} meter (Radius: ${geofenceRadius}m).`;
+      const logEntry = formatGeofenceEventLog(result.event);
+      setLastEvent(logEntry);
+      addEventToHistory(logEntry);
+      Alert.alert(eventTitle, eventMessage);
+    } else {
+      wasInsideRef.current = result.nowInside;
+      setInsideGeofence(result.nowInside);
+      const note = `Perangkat sudah berada ${result.nowInside ? 'di dalam' : 'di luar'} area pantauan (${Math.round(result.distance)}m).`;
+      setLastEvent(note);
+    }
+  }, [geofenceCenter, geofenceRadius, geofenceName, moveCameraTo, addEventToHistory]);
+
   const currentDistance = useMemo(() => {
     if (!hasValidCoordinates(currentLocation) || !hasValidCoordinates(geofenceCenter)) return null;
     return haversineDistanceMeters(currentLocation, geofenceCenter);
@@ -517,9 +713,9 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.heading}>Lokasi & Peta TemuBarang</Text>
+      <Text style={styles.heading}>Lokasi & Intelligence</Text>
       <Text style={styles.description}>
-        Tandai lokasi terakhir barang hilang atau lokasi barang ditemukan, jelajahi laporan pada peta, dan pantau area sekitar secara interaktif.
+        Pelacakan lokasi GPS, pemetaan interaktif, Reverse Geocoding, Geofencing area kampus, dan Location Battery Optimization.
       </Text>
 
       {/* ============================================================== */}
@@ -561,14 +757,10 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
             ref={mapRef}
             style={styles.map}
             initialRegion={initialRegion}
-            onMapReady={() => {
-              setMapReady(true);
-              setMapError('');
-            }}
+            onMapReady={() => setMapReady(true)}
             onRegionChangeComplete={(region) => {
               setCameraCenter(region);
               if (region.latitudeDelta) {
-                // Konversi perkiraan delta ke level zoom 1-20
                 const zoom = Math.round(Math.log(360 / region.latitudeDelta) / Math.LN2);
                 setCurrentZoom(Math.min(20, Math.max(3, zoom)));
               }
@@ -663,14 +855,16 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
                 />
                 <Marker
                   coordinate={geofenceCenter}
-                  title="Pusat Area Pantauan"
-                  description={`Radius ${geofenceRadius} meter`}
+                  title={`Pusat: ${geofenceName}`}
+                  description={`Radius ${geofenceRadius}m • ${geofenceCenterAddress || 'Menunggu alamat...'}`}
                   pinColor={getMarkerPinColor('geofence')}
                   onPress={() => handleSelectMarker({
                     type: 'geofence',
                     latitude: geofenceCenter.latitude,
                     longitude: geofenceCenter.longitude,
                     radius: geofenceRadius,
+                    name: geofenceName,
+                    address: geofenceCenterAddress,
                   })}
                 />
               </>
@@ -696,7 +890,7 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
             </View>
           </View>
 
-          {/* Kontrol Kamera Melayang (Floating Camera Controls) */}
+          {/* Kontrol Kamera Melayang */}
           <View style={styles.mapControlsOverlay}>
             <Pressable
               onPress={centerToGPS}
@@ -772,11 +966,13 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
             <View style={[styles.legendDot, { backgroundColor: '#16A34A' }]} />
             <Text style={styles.legendText}>Barang Ditemukan ({foundCount})</Text>
           </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: '#7C3AED' }]} />
+            <Text style={styles.legendText}>Geofence ({geofenceRadius}m)</Text>
+          </View>
         </View>
 
-        {/* ============================================================== */}
-        {/* KARTU INFORMASI MARKER TERPILIH                                */}
-        {/* ============================================================== */}
+        {/* KARTU INFORMASI MARKER TERPILIH */}
         {selectedMarker ? (
           <View style={styles.selectedMarkerCard}>
             <View style={styles.selectedMarkerHeader}>
@@ -830,7 +1026,6 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
               <Text style={styles.selectedMarkerCategory}>Kategori: {selectedMarker.kategori}</Text>
             ) : null}
 
-            {/* Tampilan Koordinat Latitude & Longitude Presisi */}
             <View style={styles.selectedCoordsBox}>
               <View style={styles.coordCol}>
                 <Text style={styles.coordLabel}>Latitude</Text>
@@ -850,12 +1045,6 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
             {selectedInfo?.accuracy ? (
               <Text style={styles.selectedMarkerAccuracy}>
                 Akurasi GPS: {selectedInfo.accuracy}
-              </Text>
-            ) : null}
-
-            {selectedMarker.pelapor ? (
-              <Text style={styles.selectedMarkerMeta}>
-                Pelapor: {selectedMarker.pelapor} {selectedMarker.tanggal ? `• ${selectedMarker.tanggal}` : ''}
               </Text>
             ) : null}
 
@@ -887,13 +1076,6 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
             </Text>
           </View>
         )}
-
-        <Text style={styles.hint}>
-          {mappedItems.length
-            ? `${mappedItems.length} laporan memiliki koordinat GPS. Tekan marker untuk melihat koordinat presisi dan membuka detail barang.`
-            : 'Belum ada laporan dengan koordinat GPS. Laporan lama tetap dapat dicari pada daftar, dan laporan baru dapat ditambahkan koordinatnya saat melapor.'}
-        </Text>
-        <Text style={styles.hint}>Tekan lama pada peta untuk menentukan pusat area pantauan geofence.</Text>
       </InfoCard>
 
       {/* ============================================================== */}
@@ -955,26 +1137,184 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
       </InfoCard>
 
       {/* ============================================================== */}
-      {/* TASK 3: REVERSE GEOCODING & GEOFENCING                         */}
+      {/* TASK 3: REVERSE GEOCODING                                      */}
       {/* ============================================================== */}
-      <InfoCard title="Task 3 — Reverse Geocoding & Geofencing">
-        <Text style={styles.sectionLabel}>Reverse Geocoding</Text>
+      <InfoCard title="Task 3 — Reverse Geocoding" badge="Koordinat → Alamat">
         <Text style={styles.bodyText}>
-          Koordinat GPS diterjemahkan menjadi alamat yang mudah dibaca ketika diminta oleh pengguna, menjaga efisiensi baterai dan layanan geocoding.
+          Ubah koordinat Latitude dan Longitude menjadi alamat lengkap yang mudah dibaca menggunakan Location API (expo-location). Dilengkapi penanganan kondisi alamat tidak ditemukan, status loading, dan error handling.
         </Text>
-        <View style={styles.divider} />
-        <Text style={styles.sectionLabel}>Geofencing — Area Pantauan</Text>
-        <Text style={styles.bodyText}>
-          Tentukan pusat area pantauan dengan menekan lama pada peta atau gunakan lokasi GPS saat ini. Aplikasi memberi peringatan saat perangkat masuk atau keluar area.
-        </Text>
+
+        <Text style={styles.label}>Pilih Sumber Koordinat:</Text>
+        <View style={styles.presetChipRow}>
+          <Pressable
+            onPress={() => {
+              setRgLat('-7.9666');
+              setRgLng('112.6326');
+              executeReverseGeocode('-7.9666', '112.6326');
+            }}
+            style={styles.presetChip}
+          >
+            <Ionicons name="school-outline" size={13} color={theme.colors.primary} style={{ marginRight: 4 }} />
+            <Text style={styles.presetChipText}>Contoh Dosen (-7.9666, 112.6326)</Text>
+          </Pressable>
+
+          {hasValidCoordinates(currentLocation) && (
+            <Pressable
+              onPress={() => {
+                const lat = String(currentLocation.latitude);
+                const lng = String(currentLocation.longitude);
+                setRgLat(lat);
+                setRgLng(lng);
+                executeReverseGeocode(lat, lng);
+              }}
+              style={styles.presetChip}
+            >
+              <Ionicons name="navigate-outline" size={13} color={theme.colors.primary} style={{ marginRight: 4 }} />
+              <Text style={styles.presetChipText}>GPS Pengguna</Text>
+            </Pressable>
+          )}
+
+          {hasValidCoordinates(selectedMarker) && (
+            <Pressable
+              onPress={() => {
+                const lat = String(selectedMarker.latitude);
+                const lng = String(selectedMarker.longitude);
+                setRgLat(lat);
+                setRgLng(lng);
+                executeReverseGeocode(lat, lng);
+              }}
+              style={styles.presetChip}
+            >
+              <Ionicons name="pin-outline" size={13} color={theme.colors.primary} style={{ marginRight: 4 }} />
+              <Text style={styles.presetChipText}>Titik Terpilih Peta</Text>
+            </Pressable>
+          )}
+        </View>
+
+        {/* Input Koordinat Manual */}
+        <View style={styles.rgInputRow}>
+          <View style={styles.rgInputCol}>
+            <Text style={styles.inputMiniLabel}>Latitude</Text>
+            <TextInput
+              value={rgLat}
+              onChangeText={setRgLat}
+              placeholder="-7.9666"
+              keyboardType="numeric"
+              style={styles.rgTextInput}
+            />
+          </View>
+          <View style={styles.rgInputCol}>
+            <Text style={styles.inputMiniLabel}>Longitude</Text>
+            <TextInput
+              value={rgLng}
+              onChangeText={setRgLng}
+              placeholder="112.6326"
+              keyboardType="numeric"
+              style={styles.rgTextInput}
+            />
+          </View>
+        </View>
+
         <ActionButton
-          title="Gunakan Lokasi Saya sebagai Pusat Area"
+          title={rgLoading ? 'Menerjemahkan Alamat...' : '🔍 Terjemahkan Alamat (Reverse Geocode)'}
+          onPress={() => executeReverseGeocode()}
+          disabled={rgLoading}
+          icon="search-outline"
+        />
+
+        {rgLoading && (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+            <Text style={styles.loadingBoxText}>Menghubungi layanan geocoding perangkat...</Text>
+          </View>
+        )}
+
+        {rgError ? (
+          <View style={styles.errorBox}>
+            <Ionicons name="alert-circle-outline" size={16} color={theme.colors.danger} style={{ marginRight: 6 }} />
+            <Text style={styles.errorText}>{rgError}</Text>
+          </View>
+        ) : null}
+
+        {rgResult && (
+          <View style={styles.rgResultCard}>
+            <View style={styles.rgResultHeader}>
+              <Ionicons name="checkmark-circle" size={18} color={theme.colors.success} style={{ marginRight: 6 }} />
+              <Text style={styles.rgResultTitle}>Alamat Berhasil Ditemukan</Text>
+            </View>
+            <Text style={styles.rgResultAddress}>{rgResult.address}</Text>
+
+            {rgResult.place && (
+              <View style={styles.rgDetailsBox}>
+                {rgResult.place.street ? (
+                  <Text style={styles.rgDetailRow}>• <Text style={styles.rgBold}>Jalan:</Text> {rgResult.place.street} {rgResult.place.streetNumber || ''}</Text>
+                ) : null}
+                {rgResult.place.district ? (
+                  <Text style={styles.rgDetailRow}>• <Text style={styles.rgBold}>Distrik/Kelurahan:</Text> {rgResult.place.district}</Text>
+                ) : null}
+                {rgResult.place.city ? (
+                  <Text style={styles.rgDetailRow}>• <Text style={styles.rgBold}>Kota/Kabupaten:</Text> {rgResult.place.city}</Text>
+                ) : null}
+                {rgResult.place.region ? (
+                  <Text style={styles.rgDetailRow}>• <Text style={styles.rgBold}>Provinsi:</Text> {rgResult.place.region}</Text>
+                ) : null}
+                {rgResult.place.postalCode ? (
+                  <Text style={styles.rgDetailRow}>• <Text style={styles.rgBold}>Kode Pos:</Text> {rgResult.place.postalCode}</Text>
+                ) : null}
+                {rgResult.place.country ? (
+                  <Text style={styles.rgDetailRow}>• <Text style={styles.rgBold}>Negara:</Text> {rgResult.place.country}</Text>
+                ) : null}
+              </View>
+            )}
+
+            <ActionButton
+              title="📍 Jadikan Pusat Area Geofence"
+              onPress={applyRgAsGeofenceCenter}
+              secondary
+              icon="radio-outline"
+            />
+          </View>
+        )}
+      </InfoCard>
+
+      {/* ============================================================== */}
+      {/* TASK 3: GEOFENCING (AREA PANTAUAN KAMPUS)                      */}
+      {/* ============================================================== */}
+      <InfoCard title="Task 3 — Geofencing (Area Pantauan)" badge={tracking ? 'Memantau' : 'Standby'}>
+        <Text style={styles.bodyText}>
+          Tentukan area pantauan di lingkungan kampus dan radius geofence. Sistem memantau posisi perangkat, mendeteksi Enter Event saat masuk, dan Exit Event saat keluar dari area.
+        </Text>
+
+        <Text style={styles.label}>Pilih Zona Pantauan Kampus (Preset):</Text>
+        <View style={styles.campusPresetRow}>
+          {CAMPUS_PRESETS.map(preset => {
+            const active = geofenceName === preset.name;
+            return (
+              <Pressable
+                key={preset.id}
+                onPress={() => selectCampusPreset(preset)}
+                style={[styles.campusPresetChip, active && styles.campusPresetChipActive]}
+              >
+                <Text style={[styles.campusPresetTitle, active && styles.campusPresetTitleActive]}>
+                  {preset.name}
+                </Text>
+                <Text style={[styles.campusPresetDesc, active && styles.campusPresetDescActive]} numberOfLines={1}>
+                  {preset.description}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <ActionButton
+          title="Gunakan Lokasi GPS Saya sebagai Pusat"
           onPress={setCenterToCurrentLocation}
           secondary
           disabled={!hasValidCoordinates(currentLocation)}
-          icon="radio-outline"
+          icon="navigate-outline"
         />
-        <Text style={styles.label}>Radius area</Text>
+
+        <Text style={styles.label}>Pilih Radius Pantauan:</Text>
         <View style={styles.radiusRow}>
           {RADIUS_OPTIONS.map(option => (
             <Pressable
@@ -988,28 +1328,104 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
             </Pressable>
           ))}
         </View>
+
+        {/* Informasi Area & Status Geofencing */}
         {geofenceCenter ? (
           <View style={styles.geofenceInfo}>
-            <Text style={styles.bodyText}>Pusat: {formatCoordinate(geofenceCenter.latitude)}, {formatCoordinate(geofenceCenter.longitude)}</Text>
-            {currentDistance !== null ? (
-              <Text style={styles.bodyText}>Jarak perangkat ke pusat: {Math.round(currentDistance)} meter</Text>
-            ) : null}
-            <Text style={styles.geofenceState}>
-              {insideGeofence === null ? 'Status area belum dipantau' : insideGeofence ? '● Di dalam area pantauan' : '○ Di luar area pantauan'}
+            <View style={styles.geofenceInfoHeader}>
+              <Text style={styles.geofenceAreaName}>{geofenceName}</Text>
+              <View
+                style={[
+                  styles.geofenceStatusBadge,
+                  insideGeofence === true
+                    ? styles.badgeInside
+                    : insideGeofence === false
+                    ? styles.badgeOutside
+                    : styles.badgeIdle,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.geofenceStatusText,
+                    insideGeofence === true
+                      ? styles.textInside
+                      : insideGeofence === false
+                      ? styles.textOutside
+                      : styles.textIdle,
+                  ]}
+                >
+                  {insideGeofence === true
+                    ? '● DI DALAM AREA'
+                    : insideGeofence === false
+                    ? '○ DI LUAR AREA'
+                    : 'STANDBY / BELUM DIPANTAU'}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.bodyText}>
+              Koordinat Pusat: {formatCoordinate(geofenceCenter.latitude)}, {formatCoordinate(geofenceCenter.longitude)}
             </Text>
+            <Text style={styles.bodyText}>
+              Alamat Pusat: {geofenceCenterAddressLoading ? 'Memuat alamat...' : geofenceCenterAddress || 'Alamat koordinat'}
+            </Text>
+            <Text style={styles.bodyText}>Radius Pantauan: {geofenceRadius} meter</Text>
+            {currentDistance !== null ? (
+              <Text style={styles.distanceText}>
+                Jarak Perangkat ke Pusat: <Text style={styles.rgBold}>{Math.round(currentDistance)} meter</Text>
+              </Text>
+            ) : (
+              <Text style={styles.distanceText}>Posisi perangkat belum tersedia untuk mengukur jarak.</Text>
+            )}
           </View>
         ) : (
-          <Text style={styles.muted}>Pusat area belum ditentukan. Tekan lama peta atau gunakan lokasi saya.</Text>
+          <Text style={styles.muted}>Pusat area belum ditentukan. Pilih zona kampus di atas atau tekan lama titik pada peta.</Text>
         )}
+
         {geofenceMessage ? <Text style={styles.successText}>{geofenceMessage}</Text> : null}
-        {lastEvent ? <Text style={styles.eventText}>Peristiwa terakhir: {lastEvent}</Text> : null}
+        {lastEvent ? <Text style={styles.eventText}>Peristiwa Terakhir: {lastEvent}</Text> : null}
+
+        {/* Riwayat Event Log */}
+        {eventHistory.length > 0 && (
+          <View style={styles.historyBox}>
+            <Text style={styles.historyTitle}>Log Peristiwa Geofencing:</Text>
+            {eventHistory.map((h, idx) => (
+              <Text key={`log-${idx}`} style={styles.historyItem}>• {h}</Text>
+            ))}
+          </View>
+        )}
+
+        {/* Tombol Pemantauan GPS Foreground */}
         <ActionButton
-          title={tracking ? 'Hentikan Pemantauan Area' : 'Mulai Pemantauan Area'}
+          title={tracking ? 'Hentikan Pemantauan Area' : '▶ Mulai Pemantauan Area (Foreground GPS)'}
           onPress={tracking ? stopTracking : startTracking}
           disabled={locationLoading}
           secondary={tracking}
           icon={tracking ? 'stop-circle-outline' : 'play-circle-outline'}
         />
+
+        {/* Uji Simulasi untuk Evaluasi & Demo Praktikum */}
+        <View style={styles.simulationCard}>
+          <Text style={styles.simulationHeader}>🧪 Uji Simulasi Event (Masuk / Keluar Area)</Text>
+          <Text style={styles.simulationNote}>
+            Gunakan tombol simulasi ini untuk menguji deteksi Enter Event dan Exit Event secara instan berdasarkan kalkulasi Haversine tanpa harus berpindah ratusan meter secara fisik.
+          </Text>
+          <View style={styles.simulationBtnRow}>
+            <Pressable
+              onPress={() => simulatePosition('inside')}
+              style={[styles.simButton, styles.simButtonInside]}
+            >
+              <Text style={styles.simButtonText}>Simulasi Masuk (ENTER)</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => simulatePosition('outside')}
+              style={[styles.simButton, styles.simButtonOutside]}
+            >
+              <Text style={styles.simButtonText}>Simulasi Keluar (EXIT)</Text>
+            </Pressable>
+          </View>
+        </View>
+
         <Text style={styles.hint}>
           Pemantauan berjalan di foreground selama halaman Peta terbuka. Pusat area dan radius tersimpan di AsyncStorage perangkat. Toleransi hysteresis mencegah alarm palsu akibat drift sinyal GPS.
         </Text>
@@ -1018,30 +1434,52 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
       {/* ============================================================== */}
       {/* BATTERY OPTIMIZATION & RESOURCE MANAGEMENT                    */}
       {/* ============================================================== */}
-      <InfoCard title="Battery Optimization — Efisiensi GPS">
+      <InfoCard title="Location Battery Optimization" badge="Materi Pendukung Week 10">
+        <Text style={styles.bodyText}>
+          Penerapan teknik optimalisasi daya baterai perangkat saat menggunakan layanan geolokasi dan sensor GPS:
+        </Text>
+
         <View style={styles.optimizationRow}>
-          <Text style={styles.optimizationTitle}>Akurasi Sensor</Text>
+          <Text style={styles.optimizationTitle}>1. Tingkat Akurasi Sensor</Text>
           <Text style={styles.optimizationValue}>Location.Accuracy.Balanced</Text>
         </View>
         <View style={styles.optimizationRow}>
-          <Text style={styles.optimizationTitle}>Interval Pembaruan</Text>
-          <Text style={styles.optimizationValue}>10 detik</Text>
+          <Text style={styles.optimizationTitle}>2. Interval Waktu Pembaruan</Text>
+          <Text style={styles.optimizationValue}>10.000 ms (10 detik)</Text>
         </View>
         <View style={styles.optimizationRow}>
-          <Text style={styles.optimizationTitle}>Jarak Minimum Pembaruan</Text>
-          <Text style={styles.optimizationValue}>25 meter</Text>
+          <Text style={styles.optimizationTitle}>3. Jarak Minimum Pembaruan</Text>
+          <Text style={styles.optimizationValue}>25 meter (distanceInterval)</Text>
         </View>
         <View style={styles.optimizationRow}>
-          <Text style={styles.optimizationTitle}>Filter Sinyal Rendah</Text>
+          <Text style={styles.optimizationTitle}>4. Filter Sinyal Rendah</Text>
           <Text style={styles.optimizationValue}>Akurasi &gt; 100m diabaikan</Text>
         </View>
         <View style={styles.optimizationRow}>
-          <Text style={styles.optimizationTitle}>Pembersihan Listener</Text>
+          <Text style={styles.optimizationTitle}>5. Buffer Toleransi (Hysteresis)</Text>
+          <Text style={styles.optimizationValue}>10 - 25m buffer perbatasan</Text>
+        </View>
+        <View style={styles.optimizationRow}>
+          <Text style={styles.optimizationTitle}>6. Pembersihan Subscription</Text>
           <Text style={styles.optimizationValue}>Otomatis saat keluar halaman</Text>
         </View>
-        <Text style={styles.hint}>
-          Sensor lokasi tidak dipantau terus-menerus. Reverse geocoding hanya dijalankan sesuai kebutuhan dan subscription dilepas ketika pengguna beralih halaman untuk menghemat baterai.
-        </Text>
+
+        {/* Perbandingan Foreground vs Background Tracking */}
+        <View style={styles.trackingComparisonBox}>
+          <Text style={styles.comparisonHeading}>Perbedaan Foreground vs Background Tracking</Text>
+          <View style={styles.comparisonItem}>
+            <Text style={styles.comparisonType}>• Foreground Tracking (Dipakai di Praktikum TemuBarang):</Text>
+            <Text style={styles.comparisonDesc}>
+              Sensor lokasi hanya berjalan aktif saat aplikasi dibuka di layar. Menggunakan izin standard <Text style={styles.rgBold}>requestForegroundPermissionsAsync</Text>. Sangat hemat baterai karena listener langsung dilepas saat berpindah halaman atau aplikasi diminimalkan. Sepenuhnya kompatibel dengan Expo Go.
+            </Text>
+          </View>
+          <View style={styles.comparisonItem}>
+            <Text style={styles.comparisonType}>• Background Tracking (Penjelasan Materi):</Text>
+            <Text style={styles.comparisonDesc}>
+              Memerlukan native background service (<Text style={styles.rgBold}>TaskManager</Text>) dan izin invasif <Text style={styles.rgBold}>ACCESS_BACKGROUND_LOCATION</Text>. Menguras baterai jika interval terlalu rapat karena CPU terus terjaga (wake-lock). Berisiko ditolak oleh sistem operasi / app store jika tidak ada urgensi navigasi/keamanan darurat.
+            </Text>
+          </View>
+        </View>
       </InfoCard>
     </ScrollView>
   );
@@ -1114,7 +1552,6 @@ const styles = StyleSheet.create({
   coordVal: { fontSize: 12, fontWeight: '900', color: theme.colors.text, fontVariant: ['tabular-nums'], marginTop: 1 },
   selectedMarkerAddress: { fontSize: 11, color: theme.colors.primaryDark, lineHeight: 17, marginTop: 4 },
   selectedMarkerAccuracy: { fontSize: 10, color: '#64748B', marginTop: 3 },
-  selectedMarkerMeta: { fontSize: 10, color: '#94A3B8', marginTop: 2 },
   selectedMarkerActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
   markerActionSecondary: { flex: 1, minHeight: 40, borderRadius: 10, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
   markerActionSecondaryText: { color: theme.colors.primary, fontSize: 11, fontWeight: '800' },
@@ -1149,21 +1586,72 @@ const styles = StyleSheet.create({
   successText: { color: theme.colors.success, fontSize: 11, lineHeight: 18, marginTop: 7, backgroundColor: theme.colors.successSoft, padding: 9, borderRadius: 10 },
   hint: { color: '#8390A2', fontSize: 10, lineHeight: 17, marginTop: 7 },
 
-  // Geofence Task 3
-  sectionLabel: { color: theme.colors.primaryDark, fontSize: 11, fontWeight: '900', marginTop: 4, marginBottom: 5 },
-  divider: { height: 1, backgroundColor: '#EDF1F6', marginVertical: 11 },
+  // Reverse Geocoding UI (Task 3)
   label: { color: '#53647A', fontSize: 11, fontWeight: '800', marginTop: 8, marginBottom: 6 },
+  presetChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 8 },
+  presetChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  presetChipText: { fontSize: 10.5, fontWeight: '700', color: theme.colors.primaryDark },
+  rgInputRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  rgInputCol: { flex: 1 },
+  inputMiniLabel: { fontSize: 9.5, fontWeight: '800', color: '#64748B', marginBottom: 3 },
+  rgTextInput: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8, fontSize: 12, color: theme.colors.text, fontWeight: '700' },
+  loadingBox: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 10, gap: 8, backgroundColor: '#F8FAFC', borderRadius: 10, marginTop: 8 },
+  loadingBoxText: { fontSize: 11, color: '#64748B', fontWeight: '600' },
+  rgResultCard: { backgroundColor: '#F8FAFC', borderRadius: 13, borderWidth: 1, borderColor: '#E2E8F0', padding: 12, marginTop: 9 },
+  rgResultHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  rgResultTitle: { fontSize: 12, fontWeight: '900', color: theme.colors.success },
+  rgResultAddress: { fontSize: 13, fontWeight: '800', color: theme.colors.text, lineHeight: 19, marginBottom: 8 },
+  rgDetailsBox: { backgroundColor: '#FFFFFF', borderRadius: 9, borderWidth: 1, borderColor: '#E2E8F0', padding: 9, marginBottom: 8 },
+  rgDetailRow: { fontSize: 10.5, color: '#475569', lineHeight: 16 },
+  rgBold: { fontWeight: '800', color: theme.colors.text },
+
+  // Geofence Task 3
+  campusPresetRow: { gap: 6, marginBottom: 8 },
+  campusPresetChip: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 11, padding: 9 },
+  campusPresetChipActive: { backgroundColor: '#F3E8FF', borderColor: theme.colors.violet },
+  campusPresetTitle: { fontSize: 11.5, fontWeight: '800', color: theme.colors.text },
+  campusPresetTitleActive: { color: theme.colors.violet },
+  campusPresetDesc: { fontSize: 10, color: '#64748B', marginTop: 1 },
+  campusPresetDescActive: { color: '#6B21A8' },
   radiusRow: { flexDirection: 'row', gap: 8, marginBottom: 7 },
-  radiusChip: { flex: 1, minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: '#DFE7F0', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
+  radiusChip: { flex: 1, minHeight: 42, borderRadius: 11, borderWidth: 1, borderColor: '#DFE7F0', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
   radiusChipSelected: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   radiusText: { color: '#53647A', fontWeight: '800', fontSize: 11 },
   radiusTextSelected: { color: '#FFFFFF' },
-  geofenceInfo: { backgroundColor: theme.colors.violetSoft, borderRadius: 13, borderWidth: 1, borderColor: '#E4DDF4', padding: 11, marginTop: 8 },
-  geofenceState: { color: theme.colors.violet, fontSize: 11, fontWeight: '900', marginTop: 5 },
+  geofenceInfo: { backgroundColor: theme.colors.violetSoft, borderRadius: 13, borderWidth: 1, borderColor: '#E4DDF4', padding: 12, marginTop: 8 },
+  geofenceInfoHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  geofenceAreaName: { fontSize: 13, fontWeight: '900', color: theme.colors.violet, flex: 1, marginRight: 8 },
+  geofenceStatusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 7 },
+  badgeInside: { backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#86EFAC' },
+  badgeOutside: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5' },
+  badgeIdle: { backgroundColor: '#E2E8F0', borderWidth: 1, borderColor: '#CBD5E1' },
+  geofenceStatusText: { fontSize: 9.5, fontWeight: '900' },
+  textInside: { color: '#16A34A' },
+  textOutside: { color: '#DC2626' },
+  textIdle: { color: '#64748B' },
+  distanceText: { fontSize: 11, color: theme.colors.violet, marginTop: 4 },
   eventText: { color: '#8D5B19', fontSize: 11, fontWeight: '700', marginTop: 6 },
+  historyBox: { backgroundColor: '#FFFBEB', borderRadius: 10, borderWidth: 1, borderColor: '#FDE68A', padding: 10, marginTop: 8 },
+  historyTitle: { fontSize: 10.5, fontWeight: '800', color: '#92400E', marginBottom: 4 },
+  historyItem: { fontSize: 10, color: '#78350F', lineHeight: 15 },
+
+  // Simulation Card
+  simulationCard: { backgroundColor: '#F1F5F9', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', padding: 11, marginTop: 12 },
+  simulationHeader: { fontSize: 11.5, fontWeight: '800', color: '#334155', marginBottom: 3 },
+  simulationNote: { fontSize: 10, color: '#64748B', lineHeight: 15, marginBottom: 8 },
+  simulationBtnRow: { flexDirection: 'row', gap: 8 },
+  simButton: { flex: 1, minHeight: 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  simButtonInside: { backgroundColor: '#16A34A' },
+  simButtonOutside: { backgroundColor: '#DC2626' },
+  simButtonText: { color: '#FFFFFF', fontSize: 10.5, fontWeight: '800', textAlign: 'center' },
 
   // Battery Optimization
   optimizationRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F0F3F7' },
   optimizationTitle: { color: '#718096', fontSize: 11 },
   optimizationValue: { color: theme.colors.text, fontSize: 11, fontWeight: '800' },
+  trackingComparisonBox: { backgroundColor: '#F8FAFC', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', padding: 12, marginTop: 12 },
+  comparisonHeading: { fontSize: 12, fontWeight: '800', color: theme.colors.text, marginBottom: 8 },
+  comparisonItem: { marginBottom: 8 },
+  comparisonType: { fontSize: 11, fontWeight: '800', color: theme.colors.primaryDark, marginBottom: 2 },
+  comparisonDesc: { fontSize: 10.5, color: '#596A80', lineHeight: 16 },
 });

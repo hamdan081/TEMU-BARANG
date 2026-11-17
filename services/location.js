@@ -1,36 +1,12 @@
 /**
- * Week 10 — layanan lokasi perangkat TemuBarang.
+ * Week 10 — Layanan lokasi perangkat TemuBarang.
  * Menggunakan expo-location dengan akurasi Balanced dan reverse geocoding
  * hanya saat diminta pengguna agar penggunaan GPS dan baterai tetap efisien.
  */
 import * as Location from 'expo-location';
+import { formatGeocodedAddress } from '../utils/locationMath';
 
-function joinUnique(parts) {
-  const seen = new Set();
-  return parts
-    .map(value => String(value || '').trim())
-    .filter(value => {
-      if (!value) return false;
-      const normalized = value.toLocaleLowerCase('id');
-      if (seen.has(normalized)) return false;
-      seen.add(normalized);
-      return true;
-    })
-    .join(', ');
-}
-
-export function formatGeocodedAddress(place) {
-  if (!place) return '';
-  return joinUnique([
-    [place.street, place.streetNumber].filter(Boolean).join(' '),
-    place.district,
-    place.subregion,
-    place.city,
-    place.region,
-    place.postalCode,
-    place.country,
-  ]);
-}
+export { formatGeocodedAddress };
 
 /**
  * Memeriksa apakah layanan GPS / Location Services aktif pada perangkat.
@@ -83,32 +59,79 @@ export async function getGPSCoordinates(options = {}) {
 }
 
 /**
+ * Week 10 Task 03: Reverse Geocoding mandiri untuk koordinat latitude dan longitude.
+ * Mengubah koordinat numerik menjadi alamat yang dapat dibaca manusia.
+ */
+export async function reverseGeocodeCoordinates(coords) {
+  if (!coords || !Number.isFinite(Number(coords.latitude)) || !Number.isFinite(Number(coords.longitude))) {
+    return {
+      success: false,
+      latitude: null,
+      longitude: null,
+      address: '',
+      place: null,
+      warning: 'Koordinat tidak valid untuk proses reverse geocoding.',
+    };
+  }
+
+  const latitude = Number(coords.latitude);
+  const longitude = Number(coords.longitude);
+
+  try {
+    const results = await Location.reverseGeocodeAsync({ latitude, longitude });
+    const place = results?.[0] || null;
+    const address = formatGeocodedAddress(place);
+    return {
+      success: Boolean(address),
+      latitude,
+      longitude,
+      address,
+      place,
+      warning: address ? '' : 'Alamat tidak ditemukan untuk koordinat tersebut.',
+    };
+  } catch (error) {
+    return {
+      success: false,
+      latitude,
+      longitude,
+      address: '',
+      place: null,
+      warning: error?.message || 'Layanan geocoding tidak dapat memuat alamat untuk titik ini.',
+    };
+  }
+}
+
+/**
  * Mengambil lokasi GPS terkini beserta alamat hasil reverse geocoding.
  */
 export async function getCurrentLocationWithAddress() {
   const coords = await getGPSCoordinates();
   const { latitude, longitude, accuracy, timestamp } = coords;
-  let address = '';
-  let geocodingWarning = '';
 
-  try {
-    const results = await Location.reverseGeocodeAsync({ latitude, longitude });
-    address = formatGeocodedAddress(results?.[0]);
-    if (!address) geocodingWarning = 'Alamat belum tersedia dari layanan geocoding.';
-  } catch {
-    geocodingWarning = 'Koordinat berhasil diambil, tetapi alamat tidak dapat dimuat.';
-  }
+  const geocodeResult = await reverseGeocodeCoordinates({ latitude, longitude });
 
   return {
     latitude,
     longitude,
     accuracy,
-    address,
-    geocodingWarning,
+    address: geocodeResult.address,
+    geocodingWarning: geocodeResult.warning,
     timestamp,
   };
 }
 
 export function getLocationAccuracyBalanced() {
   return Location.Accuracy.Balanced;
+}
+
+/**
+ * Konfigurasi standar Location Battery Optimization (Materi Pendukung Week 10)
+ */
+export function getBatteryOptimizationConfig() {
+  return {
+    accuracy: Location.Accuracy.Balanced,
+    timeInterval: 10000, // 10 detik
+    distanceInterval: 25, // 25 meter
+    accuracyThreshold: 100, // filter sampel > 100m
+  };
 }

@@ -3,7 +3,7 @@ import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'rea
 import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { theme } from '../theme';
-import { formatGeocodedAddress, getCurrentLocationWithAddress } from '../services/location';
+import { formatGeocodedAddress, getCurrentLocationWithAddress, reverseGeocodeCoordinates } from '../services/location';
 import { hasValidCoordinates } from '../utils/locationMath';
 
 const DEFAULT_REGION = {
@@ -46,12 +46,11 @@ export default function ReportLocationPicker({ visible, initialCoordinate, initi
     if (validInitial && !initialAddress) {
       const sequence = ++geocodeSequence.current;
       setResolving(true);
-      Location.reverseGeocodeAsync(start)
-        .then(places => {
+      reverseGeocodeCoordinates(start)
+        .then(res => {
           if (sequence !== geocodeSequence.current) return;
-          const nextAddress = formatGeocodedAddress(places?.[0]);
-          setAddress(nextAddress);
-          if (!nextAddress) setError('Alamat tidak tersedia. Koordinat tetap dapat digunakan.');
+          setAddress(res.address || '');
+          if (res.warning) setError(res.warning);
         })
         .catch(() => {
           if (sequence === geocodeSequence.current) setError('Alamat tidak dapat dimuat. Koordinat tetap dapat digunakan.');
@@ -67,11 +66,10 @@ export default function ReportLocationPicker({ visible, initialCoordinate, initi
     setResolving(true);
     setError('');
     try {
-      const places = await Location.reverseGeocodeAsync(point);
-      const nextAddress = formatGeocodedAddress(places?.[0]);
+      const res = await reverseGeocodeCoordinates(point);
       if (sequence !== geocodeSequence.current) return;
-      setAddress(nextAddress);
-      if (!nextAddress) setError('Alamat tidak tersedia. Koordinat tetap dapat digunakan.');
+      setAddress(res.address || '');
+      if (res.warning) setError(res.warning);
     } catch {
       if (sequence !== geocodeSequence.current) return;
       setAddress('');
