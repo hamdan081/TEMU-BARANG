@@ -63,3 +63,84 @@ export function formatAccuracy(accuracy) {
   if (rounded <= 100) return `±${rounded} meter (Cukup)`;
   return `±${rounded} meter (Rendah)`;
 }
+
+export function getMarkerPinColor(jenisLaporan) {
+  if (jenisLaporan === 'Hilang') return '#DC2626';
+  if (jenisLaporan === 'Ditemukan') return '#16A34A';
+  if (jenisLaporan === 'user') return '#1565C0';
+  if (jenisLaporan === 'geofence') return '#7C3AED';
+  return '#64748B';
+}
+
+export function calculateBoundingRegion(coordinates = [], padding = 1.25) {
+  const valid = coordinates.filter(hasValidCoordinates);
+  if (!valid.length) {
+    return {
+      latitude: -7.9666,
+      longitude: 112.6326,
+      latitudeDelta: 0.035,
+      longitudeDelta: 0.035,
+    };
+  }
+  if (valid.length === 1) {
+    return {
+      latitude: Number(valid[0].latitude),
+      longitude: Number(valid[0].longitude),
+      latitudeDelta: 0.012,
+      longitudeDelta: 0.012,
+    };
+  }
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  for (const c of valid) {
+    const lat = Number(c.latitude);
+    const lng = Number(c.longitude);
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+  }
+  const midLat = (minLat + maxLat) / 2;
+  const midLng = (minLng + maxLng) / 2;
+  const latDelta = Math.max(0.008, (maxLat - minLat) * padding);
+  const lngDelta = Math.max(0.008, (maxLng - minLng) * padding);
+
+  return {
+    latitude: midLat,
+    longitude: midLng,
+    latitudeDelta: Math.min(latDelta, 0.5),
+    longitudeDelta: Math.min(lngDelta, 0.5),
+  };
+}
+
+export function formatMarkerInfo(item) {
+  if (!item) return null;
+  const isUser = item.type === 'user';
+  const isGeofence = item.type === 'geofence';
+  const pinColor = isUser ? '#1565C0' : isGeofence ? '#7C3AED' : getMarkerPinColor(item.jenisLaporan);
+  const title = isUser ? 'Lokasi Pengguna (Saya)' : isGeofence ? 'Pusat Area Pantauan' : (item.nama || 'Laporan Barang');
+  const typeLabel = isUser
+    ? 'Posisi Perangkat'
+    : isGeofence
+    ? 'Geofence'
+    : item.jenisLaporan === 'Hilang'
+    ? 'Barang Hilang'
+    : 'Barang Ditemukan';
+  const subtitle = isUser
+    ? (item.address || 'Posisi perangkat GPS saat ini')
+    : isGeofence
+    ? `Radius ${item.radius || 300} meter`
+    : `${typeLabel} • ${item.lokasi || ''}${item.locationPrecision === 'approximate' ? ' • lokasi perkiraan untuk privasi' : ''}`;
+
+  return {
+    title,
+    typeLabel,
+    subtitle,
+    pinColor,
+    latitude: formatCoordinate(item.latitude),
+    longitude: formatCoordinate(item.longitude),
+    rawLatitude: Number(item.latitude),
+    rawLongitude: Number(item.longitude),
+    accuracy: item.accuracy ? formatAccuracy(item.accuracy) : null,
+    address: item.alamat || item.address || item.lokasi || '',
+  };
+}

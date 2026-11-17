@@ -2,41 +2,66 @@
 
 ## Tujuan
 
-Menampilkan posisi pengguna dan lokasi laporan barang pada peta agar mahasiswa dapat memahami hubungan lokasi barang hilang dan barang temuan.
+Menampilkan posisi pengguna dan lokasi laporan barang pada peta interaktif menggunakan Maps SDK (`react-native-maps`) agar pengguna dapat memahami hubungan lokasi barang hilang dan barang temuan serta mempermudah proses pencarian dan pengembalian barang.
 
-## Penerapan di aplikasi
+## Penerapan di Aplikasi
 
-Aplikasi memiliki tab **Peta** yang menampilkan:
-- Marker biru untuk posisi perangkat saat ini.
-- Marker merah untuk laporan **Barang Hilang**.
-- Marker hijau untuk laporan **Barang Ditemukan**.
-- Lingkaran ungu dan marker pusat untuk area geofence yang dipilih.
+Aplikasi memiliki tab navigasi utama **Peta** yang menampilkan:
+1. **Marker Pengguna (🔵)**: Posisi perangkat GPS aktual dengan lingkaran akurasi dan balon informasi koordinat.
+2. **Marker Barang Hilang (🔴)**: Titik kejadian laporan barang hilang dengan warna merah kontras.
+3. **Marker Barang Ditemukan (🟢)**: Titik penemuan barang dengan warna hijau.
+4. **Marker & Lingkaran Geofence (🟣)**: Pusat area dan batas radius pemantauan (150m, 300m, 500m).
+5. **Camera Position Interaktif**:
+   - Pemusatan kamera dinamis (`animateCamera` dan `animateToRegion`).
+   - Kontrol Zoom In (+) dan Zoom Out (-).
+   - Mode Perspektif 2D dan 3D Tilt (sudut pitch 45°).
+   - Reset arah kamera ke Utara (heading 0°).
+   - Tombol cepat **Pusatkan ke GPS Saya** (floating locate button).
+   - Tombol **Tampilkan Semua Marker** (`fitToCoordinates` / auto bounding).
+   - HUD koordinat live di pojok atas peta: menampilkan latitude dan longitude kamera saat digeser.
+6. **Kartu Informasi Marker Terpilih**:
+   - Menampilkan jenis marker (Hilang / Ditemukan / Posisi Saya / Geofence).
+   - Menampilkan koordinat Latitude & Longitude presisi (6 angka desimal).
+   - Menampilkan alamat/lokasi kejadian dan akurasi GPS jika tersedia.
+   - Tombol aksi cepat untuk memusatkan kamera atau membuka detail laporan lengkap.
+7. **Filter Marker Cepat**:
+   - Chip filter: Semua Laporan, Barang Hilang (🔴), dan Barang Ditemukan (🟢).
+8. **Integrasi Alur Navigasi**:
+   - Dari halaman **Detail Barang**, tombol **📍 Lihat Lokasi pada Peta** langsung mengarahkan pengguna ke tab Peta dan memusatkan kamera secara otomatis ke titik kejadian barang tersebut.
+   - Penolakan izin GPS tetap memungkinkan pengguna menjelajahi peta dan melihat seluruh marker barang yang telah memiliki koordinat.
 
-Pengguna dapat menekan callout marker laporan untuk membuka halaman detail barang. Dari halaman Detail Barang, tombol **Lihat Lokasi pada Peta** memusatkan peta pada koordinat laporan yang dipilih.
+## Library dan Komponen
 
-## Library dan komponen
+- `react-native-maps`: `MapView`, `Marker`, `Callout`, dan `Circle`.
+- `expo-location`: Pengambilan posisi GPS terkini perangkat secara aktual dan reverse geocoding.
+- `@expo/vector-icons`: Ikon visual pada kontrol peta dan kartu informasi.
+- `components/LocationScreen.js`: Komponen utama peta, marker, kontrol kamera, dan kartu informasi.
+- `components/ReportLocationPicker.js`: Pemilihan titik manual pada peta saat pembuatan/pengeditan laporan.
+- `components/BottomNav.js`: Tab navigasi utama Peta.
+- `utils/locationMath.mjs`: Validasi koordinat, pewarnaan pin marker, formatting desimal, kalkulasi bounding region, dan formatting informasi marker.
+- `App.js`: Integrasi navigasi antara halaman Detail Barang, formulir pelaporan, dan layar Peta.
 
-- `react-native-maps`: `MapView`, `Marker`, dan `Circle`.
-- `expo-location`: mengambil lokasi perangkat dan izin lokasi.
-- `components/LocationScreen.js`: tampilan peta, marker, dan geofence.
-- `components/ReportLocationPicker.js`: pemilihan titik laporan secara manual.
-- `components/BottomNav.js`: tab navigasi Peta.
-- `App.js`: integrasi peta dengan daftar dan detail laporan.
+## Catatan Data & Privasi
 
-## Catatan data
+- Laporan tanpa koordinat GPS (misal laporan terdahulu sebelum Week 10) tetap tersimpan aman dan dapat dibaca melalui tab Daftar Barang.
+- Laporan baru menyimpan koordinat aktual ketika pengguna menekan tombol GPS atau memilih titik kejadian di peta secara manual.
+- Untuk menjaga privasi pengguna, API membulatkan koordinat bagi pengguna umum, sementara pemilik dan penemu yang telah terverifikasi/dipasangkan dapat melihat koordinat presisi.
 
-Laporan yang dibuat sebelum fitur GPS ditambahkan tidak memiliki koordinat sehingga tidak ditampilkan sebagai marker. Laporan tersebut tetap dapat dibaca melalui Daftar Barang. Laporan baru dapat menyimpan koordinat jika pengguna memilih tombol GPS atau memilih titik secara manual pada peta. Untuk menjaga privasi, API membulatkan koordinat bagi pengguna lain; pemilik dan pihak yang telah dipasangkan dapat melihat koordinat presisi.
+## Kompatibilitas & Konfigurasi
 
-## Kompatibilitas
+- `react-native-maps` kompatibel dengan Expo Go (iOS & Android).
+- Untuk Android standalone / production APK, konfigurasi Google Maps API key telah disiapkan di `app.config.js` via environment variable `GOOGLE_MAPS_API_KEY` tanpa memasukkan kunci privat ke repositori publik.
 
-`react-native-maps` tersedia di Expo Go untuk uji coba. Untuk Android standalone/development build, konfigurasi Google Maps API key mungkin diperlukan sesuai dokumentasi Expo. Jangan menaruh API key pribadi di repository publik.
+## Checklist Implementasi & Demo
 
-## Checklist demo
-
-- [ ] Tab Peta dapat dibuka.
-- [ ] Peta tampil pada smartphone.
-- [ ] Lokasi GPS pengguna ditampilkan sebagai marker.
-- [ ] Marker laporan hilang berwarna merah.
-- [ ] Marker laporan ditemukan berwarna hijau.
-- [ ] Callout marker dapat membuka detail barang.
-- [ ] Peta dapat diarahkan ke lokasi laporan dari halaman Detail Barang.
+- [x] Peta berhasil diintegrasikan dan ditampilkan pada tab Peta TemuBarang.
+- [x] Camera Position diimplementasikan (smooth animation, zoom in/out, 3D tilt, compass).
+- [x] HUD koordinat live menampilkan Latitude dan Longitude secara presisi.
+- [x] Marker lokasi GPS pengguna tampil dengan warna biru (`#1565C0`) dan lingkaran akurasi.
+- [x] Pemusatan peta berdasarkan koordinat GPS pengguna berfungsi normal.
+- [x] Marker barang hilang (merah `#DC2626`) dan barang temuan (hijau `#16A34A`) tampil.
+- [x] Kartu informasi dan callout menampilkan informasi lokasi ketika marker dipilih.
+- [x] Loading state dan penanganan error/penolakan izin GPS diimplementasikan.
+- [x] Integrasi Task 01 terjaga: koordinat GPS dinamis aktual, titik manual picker berbeda dari GPS pengguna.
+- [x] Fitur Geofencing Task 03 tetap utuh dan berfungsi normal.
+- [x] Unit test `tests/week10.location.test.mjs` lulus 100%.
