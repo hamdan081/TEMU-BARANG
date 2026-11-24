@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  Vibration,
   View,
 } from 'react-native';
 import MapView, { Callout, Circle, Marker } from 'react-native-maps';
@@ -94,8 +95,37 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
   const [insideGeofence, setInsideGeofence] = useState(null);
   const [geofenceMessage, setGeofenceMessage] = useState('');
   const [lastEvent, setLastEvent] = useState('');
+  const [activeNotification, setActiveNotification] = useState(null); // Floating In-App Push Notification Banner
   const [loadedSettingsKey, setLoadedSettingsKey] = useState(null);
   const settingsKey = useMemo(() => `temubarang.geofence.settings.v1.${userId ?? 'guest'}`, [userId]);
+
+  // Handler memicu notifikasi visual banner dan getaran haptik secara otomatis
+  const triggerNotification = useCallback((type, title, message) => {
+    try {
+      if (type === 'enter') {
+        Vibration.vibrate([0, 180, 80, 180]);
+      } else {
+        Vibration.vibrate(280);
+      }
+    } catch { }
+
+    const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    setActiveNotification({
+      id: Date.now(),
+      type,
+      title,
+      message,
+      time: timeStr,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!activeNotification) return;
+    const timer = setTimeout(() => {
+      setActiveNotification(null);
+    }, 6500);
+    return () => clearTimeout(timer);
+  }, [activeNotification]);
 
   // Load geofence settings dari AsyncStorage
   useEffect(() => {
@@ -376,20 +406,46 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
       Alert.alert('Lokasi Belum Tersedia', 'Ambil lokasi GPS terlebih dahulu.');
       return;
     }
-    if (tracking) stopTracking();
     const center = {
       latitude: Number(currentLocation.latitude),
       longitude: Number(currentLocation.longitude),
     };
     setGeofenceCenter(center);
-    wasInsideRef.current = null;
-    setInsideGeofence(null);
     setGeofenceMessage('Pusat area pantauan menggunakan lokasi GPS saat ini.');
     moveCameraTo(center, { zoom: 16, delta: 0.012 });
+
+    if (tracking) {
+      wasInsideRef.current = true;
+      setInsideGeofence(true);
+      const title = '🔔 Di Dalam Area Pantauan';
+      const msg = `Pusat area disetel ke lokasi GPS Anda. Anda berada di pusat radius ${geofenceRadius}m.`;
+      setLastEvent(`${title} • ${new Date().toLocaleTimeString('id-ID')}`);
+      triggerNotification('enter', title, msg);
+    }
+  };
+
+  const setCenterToCampusPreset = () => {
+    const center = {
+      latitude: -7.9467,
+      longitude: 112.6156,
+    };
+    setGeofenceCenter(center);
+    setGeofenceMessage('Pusat area pantauan disetel ke Kampus (Slide Week 10).');
+    moveCameraTo(center, { zoom: 16, delta: 0.012 });
+
+    if (tracking && hasValidCoordinates(currentLocation)) {
+      const distance = haversineDistanceMeters(currentLocation, center);
+      const nowInside = distance <= geofenceRadius;
+      wasInsideRef.current = nowInside;
+      setInsideGeofence(nowInside);
+      const title = nowInside ? '🔔 Anda Masuk Area Kampus!' : '⚠️ Anda Keluar Area Kampus!';
+      const msg = `Pusat area diarahkan ke Kampus. Anda berada ${nowInside ? 'DI DALAM' : 'DI LUAR'} radius ${geofenceRadius}m (Jarak: ${Math.round(distance)}m).`;
+      setLastEvent(`${title} • ${new Date().toLocaleTimeString('id-ID')}`);
+      triggerNotification(nowInside ? 'enter' : 'exit', title, msg);
+    }
   };
 
   const handleMapLongPress = event => {
-    if (tracking) stopTracking();
     const coordinate = event?.nativeEvent?.coordinate;
     if (!hasValidCoordinates(coordinate)) return;
     const center = {
@@ -397,8 +453,6 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
       longitude: Number(coordinate.longitude),
     };
     setGeofenceCenter(center);
-    wasInsideRef.current = null;
-    setInsideGeofence(null);
     setGeofenceMessage('Pusat area pantauan dipilih dari titik pada peta.');
     setSelectedMarker({
       type: 'geofence',
@@ -406,6 +460,17 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
       longitude: center.longitude,
       radius: geofenceRadius,
     });
+
+    if (tracking && hasValidCoordinates(currentLocation)) {
+      const distance = haversineDistanceMeters(currentLocation, center);
+      const nowInside = distance <= geofenceRadius;
+      wasInsideRef.current = nowInside;
+      setInsideGeofence(nowInside);
+      const title = nowInside ? '🔔 Masuk Radius Area Terpilih' : '⚠️ Di Luar Radius Titik Terpilih';
+      const msg = `Titik baru dipilih pada peta. Posisi Anda ${nowInside ? 'DI DALAM' : 'DI LUAR'} radius ${geofenceRadius}m (Jarak: ${Math.round(distance)}m).`;
+      setLastEvent(`${title} • ${new Date().toLocaleTimeString('id-ID')}`);
+      triggerNotification(nowInside ? 'enter' : 'exit', title, msg);
+    }
   };
 
   const startTracking = async () => {
@@ -437,16 +502,24 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
         setLocationError('Akurasi GPS masih rendah. Tunggu di area terbuka atau pilih titik yang lebih akurat sebelum memulai pemantauan.');
         return;
       }
-      const initialInside = isInsideGeofence(baseline, center, geofenceRadius);
+      const dist = haversineDistanceMeters(baseline, center);
+      const initialInside = dist <= geofenceRadius;
       wasInsideRef.current = initialInside;
       setInsideGeofence(initialInside);
       setLastEvent(initialInside ? 'Perangkat berada di dalam area pantauan.' : 'Perangkat berada di luar area pantauan.');
 
+      // Notifikasi real-time langsung aktif dan muncul otomatis
+      const initTitle = initialInside ? '🔔 Anda Masuk Area Pantauan!' : '⚠️ Berada di Luar Area Pantauan';
+      const initMsg = initialInside
+        ? `Perangkat terdeteksi DI DALAM area (Jarak: ${Math.round(dist)}m, Radius: ${geofenceRadius}m).`
+        : `Perangkat terdeteksi DI LUAR area (Jarak: ${Math.round(dist)}m, Radius: ${geofenceRadius}m).`;
+      triggerNotification(initialInside ? 'enter' : 'exit', initTitle, initMsg);
+
       const subscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
-          timeInterval: 10000,
-          distanceInterval: 25,
+          timeInterval: 4000,
+          distanceInterval: 10,
           mayShowUserSettingsDialog: true,
         },
         position => {
@@ -466,7 +539,7 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
             return;
           }
           const distance = haversineDistanceMeters(nextLocation, center);
-          const hysteresis = Math.max(10, Math.min(25, geofenceRadius * 0.1));
+          const hysteresis = Math.max(8, Math.min(20, geofenceRadius * 0.08));
           const threshold = wasInsideRef.current ? geofenceRadius + hysteresis : Math.max(0, geofenceRadius - hysteresis);
           const nowInside = distance <= threshold;
           if (wasInsideRef.current === null) {
@@ -476,14 +549,14 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
           }
 
           if (wasInsideRef.current !== nowInside) {
-            const eventTitle = nowInside ? 'Memasuki Area Pantauan' : 'Keluar dari Area Pantauan';
+            const eventTitle = nowInside ? '🔔 Anda Masuk Area Pantauan!' : '⚠️ Anda Keluar dari Area Pantauan!';
             const eventMessage = nowInside
-              ? 'Perangkat terdeteksi memasuki area pantauan TemuBarang.'
-              : 'Perangkat terdeteksi keluar dari area pantauan TemuBarang.';
+              ? `Perangkat terdeteksi MEMASUKI area pantauan (Jarak: ${Math.round(distance)}m).`
+              : `Perangkat terdeteksi KELUAR dari area pantauan (Jarak: ${Math.round(distance)}m).`;
             wasInsideRef.current = nowInside;
             setInsideGeofence(nowInside);
             setLastEvent(`${eventTitle} • ${new Date().toLocaleTimeString('id-ID')}`);
-            Alert.alert(eventTitle, eventMessage);
+            triggerNotification(nowInside ? 'enter' : 'exit', eventTitle, eventMessage);
           }
         },
         message => setLocationError(message || 'Pembaruan lokasi mengalami kendala.')
@@ -491,7 +564,7 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
 
       watchRef.current = subscription;
       setTracking(true);
-      setGeofenceMessage('Pemantauan area aktif selama halaman Peta terbuka.');
+      setGeofenceMessage('Pemantauan area aktif otomatis secara real-time.');
     } catch (error) {
       const message = error?.message || 'Pemantauan area tidak dapat dimulai.';
       setLocationError(message);
@@ -500,11 +573,20 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
   };
 
   const changeRadius = nextRadius => {
-    if (tracking) stopTracking();
     setGeofenceRadius(nextRadius);
-    setInsideGeofence(null);
-    wasInsideRef.current = null;
-    setGeofenceMessage('Radius diperbarui. Aktifkan kembali pemantauan area.');
+    setGeofenceMessage(`Radius area diperbarui menjadi ${nextRadius} meter.`);
+    if (tracking && hasValidCoordinates(currentLocation) && hasValidCoordinates(geofenceCenter)) {
+      const distance = haversineDistanceMeters(currentLocation, geofenceCenter);
+      const nowInside = distance <= nextRadius;
+      if (wasInsideRef.current !== nowInside) {
+        wasInsideRef.current = nowInside;
+        setInsideGeofence(nowInside);
+        const title = nowInside ? '🔔 Anda Masuk Area Pantauan!' : '⚠️ Anda Keluar dari Area Pantauan!';
+        const msg = `Radius disesuaikan ke ${nextRadius}m. Posisi Anda kini ${nowInside ? 'DI DALAM' : 'DI LUAR'} area (Jarak: ${Math.round(distance)}m).`;
+        setLastEvent(`${title} • ${new Date().toLocaleTimeString('id-ID')}`);
+        triggerNotification(nowInside ? 'enter' : 'exit', title, msg);
+      }
+    }
   };
 
   const currentDistance = useMemo(() => {
@@ -516,7 +598,47 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
   const selectedInfo = useMemo(() => formatMarkerInfo(selectedMarker), [selectedMarker]);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <View style={styles.rootWrapper}>
+      {/* Floating In-App Push Notification Toast Banner */}
+      {activeNotification && (
+        <View
+          style={[
+            styles.notificationToast,
+            activeNotification.type === 'enter' ? styles.notificationToastEnter : styles.notificationToastExit,
+          ]}
+        >
+          <View
+            style={[
+              styles.notificationIconWrap,
+              activeNotification.type === 'enter' ? styles.notificationIconEnter : styles.notificationIconExit,
+            ]}
+          >
+            <Ionicons
+              name={activeNotification.type === 'enter' ? 'shield-checkmark' : 'warning'}
+              size={22}
+              color="#FFFFFF"
+            />
+          </View>
+          <View style={styles.notificationBody}>
+            <View style={styles.notificationHeaderRow}>
+              <Text style={styles.notificationTitle}>{activeNotification.title}</Text>
+              <Text style={styles.notificationTime}>{activeNotification.time}</Text>
+            </View>
+            <Text style={styles.notificationMessage}>{activeNotification.message}</Text>
+          </View>
+          <Pressable
+            onPress={() => setActiveNotification(null)}
+            hitSlop={12}
+            style={styles.notificationCloseBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Tutup notifikasi"
+          >
+            <Ionicons name="close" size={18} color="#64748B" />
+          </Pressable>
+        </View>
+      )}
+
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={styles.heading}>Lokasi & Peta TemuBarang</Text>
       <Text style={styles.description}>
         Tandai lokasi terakhir barang hilang atau lokasi barang ditemukan, jelajahi laporan pada peta, dan pantau area sekitar secara interaktif.
@@ -967,13 +1089,21 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
         <Text style={styles.bodyText}>
           Tentukan pusat area pantauan dengan menekan lama pada peta atau gunakan lokasi GPS saat ini. Aplikasi memberi peringatan saat perangkat masuk atau keluar area.
         </Text>
-        <ActionButton
-          title="Gunakan Lokasi Saya sebagai Pusat Area"
-          onPress={setCenterToCurrentLocation}
-          secondary
-          disabled={!hasValidCoordinates(currentLocation)}
-          icon="radio-outline"
-        />
+        <View style={styles.centerActionsRow}>
+          <ActionButton
+            title="Lokasi GPS Saya"
+            onPress={setCenterToCurrentLocation}
+            secondary
+            disabled={!hasValidCoordinates(currentLocation)}
+            icon="radio-outline"
+          />
+          <ActionButton
+            title="Preset Kampus (Slide W10)"
+            onPress={setCenterToCampusPreset}
+            secondary
+            icon="school-outline"
+          />
+        </View>
         <Text style={styles.label}>Radius area</Text>
         <View style={styles.radiusRow}>
           {RADIUS_OPTIONS.map(option => (
@@ -1011,7 +1141,7 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
           icon={tracking ? 'stop-circle-outline' : 'play-circle-outline'}
         />
         <Text style={styles.hint}>
-          Pemantauan berjalan di foreground selama halaman Peta terbuka. Pusat area dan radius tersimpan di AsyncStorage perangkat. Toleransi hysteresis mencegah alarm palsu akibat drift sinyal GPS.
+          Pemantauan berjalan otomatis di foreground. Notifikasi banner melayang dan getaran haptic langsung aktif secara real-time saat Anda menekan 'Mulai Pemantauan', saat beralih radius chip (150m, 300m, 500m), atau saat memilih titik pusat baru.
         </Text>
       </InfoCard>
 
@@ -1025,11 +1155,11 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
         </View>
         <View style={styles.optimizationRow}>
           <Text style={styles.optimizationTitle}>Interval Pembaruan</Text>
-          <Text style={styles.optimizationValue}>10 detik</Text>
+          <Text style={styles.optimizationValue}>4 detik</Text>
         </View>
         <View style={styles.optimizationRow}>
           <Text style={styles.optimizationTitle}>Jarak Minimum Pembaruan</Text>
-          <Text style={styles.optimizationValue}>25 meter</Text>
+          <Text style={styles.optimizationValue}>10 meter</Text>
         </View>
         <View style={styles.optimizationRow}>
           <Text style={styles.optimizationTitle}>Filter Sinyal Rendah</Text>
@@ -1044,10 +1174,93 @@ export default function LocationScreen({ items = [], focusItem = null, onSelectI
         </Text>
       </InfoCard>
     </ScrollView>
+  </View>
   );
 }
 
 const styles = StyleSheet.create({
+  rootWrapper: {
+    flex: 1,
+    position: 'relative',
+    backgroundColor: theme.colors.background,
+  },
+  // Floating Push Notification Banner
+  notificationToast: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
+    zIndex: 9999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 10,
+  },
+  notificationToastEnter: {
+    borderLeftWidth: 5,
+    borderLeftColor: '#16A34A',
+    backgroundColor: '#F0FDF4',
+  },
+  notificationToastExit: {
+    borderLeftWidth: 5,
+    borderLeftColor: '#DC2626',
+    backgroundColor: '#FEF2F2',
+  },
+  notificationIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  notificationIconEnter: {
+    backgroundColor: '#16A34A',
+  },
+  notificationIconExit: {
+    backgroundColor: '#DC2626',
+  },
+  notificationBody: {
+    flex: 1,
+  },
+  notificationHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  notificationTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  notificationTime: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  notificationMessage: {
+    fontSize: 11,
+    color: '#334155',
+    lineHeight: 16,
+  },
+  notificationCloseBtn: {
+    padding: 6,
+    marginLeft: 6,
+  },
+  centerActionsRow: {
+    gap: 6,
+    marginTop: 4,
+  },
   container: { flex: 1, backgroundColor: theme.colors.background },
   content: { paddingBottom: 32, paddingTop: 2 },
   heading: { fontSize: 24, fontWeight: '900', color: theme.colors.text, marginBottom: 5, letterSpacing: -0.5 },
